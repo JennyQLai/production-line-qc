@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useAuthActions } from '@/lib/auth/hooks'
-import { createClient } from '@/lib/supabase/client'
+import { initiateOIDCLogin } from '@/lib/auth/oidcService'
 
 interface LoginFormProps {
   onSuccess?: () => void
@@ -25,24 +25,12 @@ export function LoginForm({ onSuccess, className = '' }: LoginFormProps) {
     setError(null)
     
     try {
-      const supabase = createClient()
-      
-      // 使用自定义 OIDC 提供商
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'oidc' as any,
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-          // 如果需要指定 scopes
-          scopes: 'openid profile email'
-        }
-      })
-      
-      if (error) {
-        setError(error.message)
-      }
+      // 直接调用自定义 OIDC 登录服务
+      await initiateOIDCLogin()
+      // 函数会重定向到 OIDC 提供商，不会返回到这里
     } catch (err) {
+      console.error('OIDC login error:', err)
       setError('企业登录失败，请重试')
-    } finally {
       setLoading(false)
     }
   }

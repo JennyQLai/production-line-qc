@@ -6,6 +6,22 @@
 
 **你的 OIDC 服务器**: `https://221.226.60.30:5001/webman/sso/.well-known/openid-configuration`
 
+## 🎯 快速配置 (已配置完成)
+
+### 应用信息
+- **应用名称**: Production-Line-QC
+- **Client ID**: `fd1297925826a23aed846c170a33fcbc`
+- **Client Secret**: `REGRxUmocD8eIeGnULJtysKWPi3WW8LT`
+- **生产环境**: http://69.230.223.12:3110
+
+### 回调 URL (已配置)
+- **开发环境**: `http://localhost:3000/auth/callback`
+- **生产环境**: `http://69.230.223.12:3110/auth/callback`
+
+**📖 完整配置指南**: 请查看 `docs/SSO_CONFIGURATION_GUIDE.md`
+
+---
+
 ## 登录界面位置
 
 企业 OIDC 登录按钮位于：
@@ -23,8 +39,8 @@
 
 ```
 Provider Name: oidc
-Client ID: [需要从你的 OIDC 管理员获取]
-Client Secret: [需要从你的 OIDC 管理员获取]
+Client ID: fd1297925826a23aed846c170a33fcbc
+Client Secret: REGRxUmocD8eIeGnULJtysKWPi3WW8LT
 Issuer URL: https://221.226.60.30:5001/webman/sso
 ```
 
@@ -36,7 +52,7 @@ Issuer URL: https://221.226.60.30:5001/webman/sso
 
 ```
 开发环境: http://localhost:3000/auth/callback
-生产环境: https://your-domain.com/auth/callback
+生产环境: http://69.230.223.12:3110/auth/callback
 ```
 
 **重要**: 需要联系你的 OIDC 管理员添加这些重定向 URL 到白名单。
