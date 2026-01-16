@@ -1,58 +1,49 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
-import { handleOIDCCallback, signInWithOIDCToken } from '@/lib/auth/oidcService'
+
+/**
+ * 获取请求的真实 origin
+ * 优先使用 x-forwarded-host，避免 localhost 问题
+ */
+function getRequestOrigin(request: NextRequest): string {
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  const forwardedProto = request.headers.get('x-forwarded-proto') || 'http'
+  
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`
+  }
+  
+  // Fallback: 使用 request.url 的 origin
+  const url = new URL(request.url)
+  return url.origin
+}
 
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url)
+  const url = new URL(request.url)
+  const { searchParams } = url
   const code = searchParams.get('code')
-  const state = searchParams.get('state')
   const next = searchParams.get('next') ?? '/'
+  
+  // 获取真实 origin（避免 localhost）
+  const requestOrigin = getRequestOrigin(request)
+  
+  console.log('Supabase callback:', {
+    origin: url.origin,
+    requestOrigin,
+    forwardedHost: request.headers.get('x-forwarded-host'),
+    code: code ? 'present' : 'missing'
+  })
 
   if (code) {
-    // 检查是否是 OIDC 回调（有 state 参数）
-    if (state) {
-      try {
-        // 处理 OIDC 回调
-        const { tokens, userInfo } = await handleOIDCCallback(code, state)
-        
-        // 使用 OIDC token 登录到 Supabase
-        await signInWithOIDCToken(tokens.id_token, userInfo)
-        
-        // 重定向到首页
-        const forwardedHost = request.headers.get('x-forwarded-host')
-        const isLocalEnv = process.env.NODE_ENV === 'development'
-        
-        if (isLocalEnv) {
-          return NextResponse.redirect(`${origin}${next}`)
-        } else if (forwardedHost) {
-          return NextResponse.redirect(`https://${forwardedHost}${next}`)
-        } else {
-          return NextResponse.redirect(`${origin}${next}`)
-        }
-      } catch (error) {
-        console.error('OIDC callback error:', error)
-        return NextResponse.redirect(`${origin}/auth/auth-code-error?error=oidc_callback_failed`)
-      }
-    } else {
-      // 标准 Supabase 回调（email/password 登录）
-      const supabase = await createClient()
-      const { error } = await supabase.auth.exchangeCodeForSession(code)
-      
-      if (!error) {
-        const forwardedHost = request.headers.get('x-forwarded-host')
-        const isLocalEnv = process.env.NODE_ENV === 'development'
-        
-        if (isLocalEnv) {
-          return NextResponse.redirect(`${origin}${next}`)
-        } else if (forwardedHost) {
-          return NextResponse.redirect(`https://${forwardedHost}${next}`)
-        } else {
-          return NextResponse.redirect(`${origin}${next}`)
-        }
-      }
+    const supabase = await createClient()
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+    
+    if (!error) {
+      // 使用 requestOrigin 构造重定向 URL
+      return NextResponse.redirect(new URL(next, requestOrigin))
     }
   }
 
-  // return the user to an error page with instructions
-  return NextResponse.redirect(`${origin}/auth/auth-code-error`)
+  // 使用 requestOrigin 构造错误页 URL
+  return NextResponse.redirect(new URL('/auth/auth-code-error', requestOrigin))
 }

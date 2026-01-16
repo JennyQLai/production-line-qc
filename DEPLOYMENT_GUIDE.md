@@ -45,11 +45,20 @@ EDGE_API_URL=
 NODE_ENV=production
 ```
 
-**⚠️ 重要**: 确保 `.env.production` 文件权限正确，不要被其他用户读取：
+**⚠️ 重要**: 
+- 确保 `.env.production` 文件权限正确：`chmod 600 .env.production`
+- **不需要** 设置 `NEXT_PUBLIC_SITE_URL` 或 `NEXTAUTH_URL`，代码会自动从请求头获取
 
-```bash
-chmod 600 .env.production
+### 2.1 更新 OIDC 回调 URL
+
+在你的 OIDC 服务器（https://221.226.60.30:5001）中，更新回调 URL 为：
+
 ```
+开发环境: http://localhost:3000/auth/oidc-callback
+生产环境: http://69.230.223.12:3110/auth/oidc-callback
+```
+
+**注意**: 回调 URL 从 `/auth/callback` 改为 `/auth/oidc-callback`
 
 ### 3. 安装依赖（如果有新依赖）
 

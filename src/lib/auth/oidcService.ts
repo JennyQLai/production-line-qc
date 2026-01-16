@@ -11,7 +11,8 @@ const OIDC_CONFIG = {
   scopes: 'openid profile email',
   get redirectUri() {
     if (typeof window === 'undefined') return ''
-    return `${window.location.origin}/auth/callback`
+    // 使用客户端回调页面（可以访问 sessionStorage）
+    return `${window.location.origin}/auth/oidc-callback`
   }
 }
 
