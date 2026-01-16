@@ -1,18 +1,37 @@
 /**
  * 自定义 OIDC 登录服务
- * 直接与企业 OIDC 服务器通信，不依赖 Supabase third-party auth
+ * 前端负责：生成 PKCE、跳转授权页面
+ * 后端负责：token 交换（保护 client_secret）
  */
 
-// OIDC 配置
+// OIDC 配置（前端安全配置，不含 secret）
 const OIDC_CONFIG = {
-  issuer: 'https://221.226.60.30:5001/webman/sso',
+  issuer: 'https://panovation.i234.me:5001/webman/sso', // 公网 issuer
   clientId: 'fd1297925826a23aed846c170a33fcbc',
-  clientSecret: 'REGRxUmocD8eIeGnULJtysKWPi3WW8LT',
   scopes: 'openid profile email',
-  // 根据环境自动选择回调 URL
   get redirectUri() {
     if (typeof window === 'undefined') return ''
     return `${window.location.origin}/auth/callback`
+  }
+}
+
+/**
+ * 获取 OIDC Discovery 配置
+ */
+async function getOIDCDiscovery() {
+  try {
+    const response = await fetch(`${OIDC_CONFIG.issuer}/.well-known/openid-configuration`, {
+      cache: 'no-store'
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch OIDC discovery')
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('OIDC discovery error:', error)
+    throw new Error('无法获取 OIDC 配置，请检查网络连接')
   }
 }
 
@@ -155,7 +174,7 @@ async function pkceChallenge(verifier: string): Promise<string> {
   // 将十六进制转换为字节数组
   const bytes: number[] = []
   for (let i = 0; i < hash.length; i += 2) {
-    bytes.push(parseInt(hash.substr(i, 2), 16))
+    bytes.push(parseInt(hash.substring(i, i + 2), 16))
   }
   
   // Base64url encode
@@ -177,10 +196,13 @@ async function generatePKCE() {
 
 /**
  * 启动 OIDC 登录流程
- * 重定向到 OIDC 提供商的授权页面
+ * 使用 discovery 获取正确的 authorization_endpoint
  */
 export async function initiateOIDCLogin() {
   try {
+    // 获取 OIDC discovery 配置
+    const discovery = await getOIDCDiscovery()
+    
     // 生成 state 和 nonce 用于安全验证
     const state = generateRandomString()
     const nonce = generateRandomString()
@@ -193,8 +215,8 @@ export async function initiateOIDCLogin() {
     sessionStorage.setItem('oidc_nonce', nonce)
     sessionStorage.setItem('oidc_code_verifier', verifier)
     
-    // 构建授权 URL
-    const authUrl = new URL(`${OIDC_CONFIG.issuer}/authorize`)
+    // 使用 discovery 返回的 authorization_endpoint（不要拼路径）
+    const authUrl = new URL(discovery.authorization_endpoint)
     authUrl.searchParams.set('client_id', OIDC_CONFIG.clientId)
     authUrl.searchParams.set('redirect_uri', OIDC_CONFIG.redirectUri)
     authUrl.searchParams.set('response_type', 'code')
@@ -203,6 +225,8 @@ export async function initiateOIDCLogin() {
     authUrl.searchParams.set('nonce', nonce)
     authUrl.searchParams.set('code_challenge', challenge)
     authUrl.searchParams.set('code_challenge_method', 'S256')
+    
+    console.log('Redirecting to authorization endpoint:', discovery.authorization_endpoint)
     
     // 重定向到 OIDC 提供商
     window.location.href = authUrl.toString()
@@ -214,7 +238,7 @@ export async function initiateOIDCLogin() {
 
 /**
  * 处理 OIDC 回调
- * 交换授权码获取 token
+ * 调用服务端 API 交换授权码（保护 client_secret）
  */
 export async function handleOIDCCallback(code: string, state: string) {
   try {
@@ -230,42 +254,26 @@ export async function handleOIDCCallback(code: string, state: string) {
       throw new Error('Missing code verifier')
     }
     
-    // 交换授权码获取 token
-    const tokenResponse = await fetch(`${OIDC_CONFIG.issuer}/token`, {
+    // 调用服务端 API 交换 token（client_secret 只在服务端）
+    const response = await fetch('/api/oidc/exchange', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/json',
       },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: code,
-        redirect_uri: OIDC_CONFIG.redirectUri,
-        client_id: OIDC_CONFIG.clientId,
-        client_secret: OIDC_CONFIG.clientSecret,
-        code_verifier: codeVerifier,
+      body: JSON.stringify({
+        code,
+        redirectUri: OIDC_CONFIG.redirectUri,
+        codeVerifier,
       }),
     })
     
-    if (!tokenResponse.ok) {
-      const errorData = await tokenResponse.json().catch(() => ({}))
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
       console.error('Token exchange failed:', errorData)
-      throw new Error('Failed to exchange authorization code')
+      throw new Error(errorData.error || 'Failed to exchange authorization code')
     }
     
-    const tokens = await tokenResponse.json()
-    
-    // 获取用户信息
-    const userInfoResponse = await fetch(`${OIDC_CONFIG.issuer}/userinfo`, {
-      headers: {
-        'Authorization': `Bearer ${tokens.access_token}`,
-      },
-    })
-    
-    if (!userInfoResponse.ok) {
-      throw new Error('Failed to fetch user info')
-    }
-    
-    const userInfo = await userInfoResponse.json()
+    const { tokens, userInfo } = await response.json()
     
     // 清理 session storage
     sessionStorage.removeItem('oidc_state')
