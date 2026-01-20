@@ -227,6 +227,43 @@ export async function initiateOIDCLogin() {
     authUrl.searchParams.set('code_challenge', challenge)
     authUrl.searchParams.set('code_challenge_method', 'S256')
     
+    // 🔍 调试日志 - 确认生成的 URL
+    console.log('🔍 OIDC Login Debug:')
+    console.log('  - Issuer:', OIDC_CONFIG.issuer)
+    console.log('  - Client ID:', OIDC_CONFIG.clientId)
+    console.log('  - Redirect URI:', OIDC_CONFIG.redirectUri)
+    console.log('  - Authorization Endpoint:', discovery.authorization_endpoint)
+    console.log('  - Full Authorize URL:', authUrl.toString())
+    
+    // 在页面上也显示（方便调试）
+    if (typeof window !== 'undefined') {
+      const debugInfo = `
+🔍 OIDC 调试信息:
+- Redirect URI: ${OIDC_CONFIG.redirectUri}
+- Auth Endpoint: ${discovery.authorization_endpoint}
+- Full URL: ${authUrl.toString()}
+      `.trim()
+      
+      // 临时显示在页面上
+      const debugDiv = document.createElement('div')
+      debugDiv.style.cssText = `
+        position: fixed; top: 10px; right: 10px; 
+        background: #000; color: #0f0; padding: 10px; 
+        font-family: monospace; font-size: 12px; 
+        white-space: pre-wrap; z-index: 9999; 
+        max-width: 400px; border-radius: 4px;
+      `
+      debugDiv.textContent = debugInfo
+      document.body.appendChild(debugDiv)
+      
+      // 5秒后自动移除
+      setTimeout(() => {
+        if (debugDiv.parentNode) {
+          debugDiv.parentNode.removeChild(debugDiv)
+        }
+      }, 5000)
+    }
+    
     console.log('Redirecting to authorization endpoint:', discovery.authorization_endpoint)
     
     // 重定向到 OIDC 提供商
