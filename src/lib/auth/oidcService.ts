@@ -303,12 +303,34 @@ export async function handleOIDCCallback(code: string, state: string) {
         redirectUri: OIDC_CONFIG.redirectUri,
         codeVerifier,
       }),
+      // 防止自动跟随重定向
+      redirect: 'manual',
     })
     
+    // 检查是否是重定向响应
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+      console.error('Exchange API returned redirect:', response.status, response.headers.get('location'))
+      throw new Error('Token exchange API returned unexpected redirect')
+    }
+    
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
-      console.error('Token exchange failed:', errorData)
-      throw new Error(errorData.error || 'Failed to exchange authorization code')
+      let errorData
+      try {
+        errorData = await response.json()
+      } catch {
+        // 如果不是 JSON，尝试获取文本
+        const errorText = await response.text()
+        errorData = { error: 'Unknown error', details: errorText }
+      }
+      
+      console.error('Token exchange failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        errorData
+      })
+      
+      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
     }
     
     const { tokens, userInfo } = await response.json()
