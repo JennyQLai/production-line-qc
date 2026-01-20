@@ -2,12 +2,18 @@
 
 import { useState } from 'react'
 
+interface TestResults {
+  callbackTest?: any
+  discoveryTest?: any
+  currentConfig?: any
+}
+
 /**
  * OIDC 调试页面
  * 用于验证配置和回调页面
  */
 export default function DebugOIDCPage() {
-  const [testResults, setTestResults] = useState<any>({})
+  const [testResults, setTestResults] = useState<TestResults>({})
 
   const testCallback = async () => {
     try {
@@ -15,7 +21,7 @@ export default function DebugOIDCPage() {
         method: 'GET',
       })
       
-      setTestResults(prev => ({
+      setTestResults((prev: TestResults) => ({
         ...prev,
         callbackTest: {
           status: response.status,
@@ -25,7 +31,7 @@ export default function DebugOIDCPage() {
         }
       }))
     } catch (error) {
-      setTestResults(prev => ({
+      setTestResults((prev: TestResults) => ({
         ...prev,
         callbackTest: {
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -40,7 +46,7 @@ export default function DebugOIDCPage() {
       const response = await fetch(`${issuer}/.well-known/openid-configuration`)
       const data = await response.json()
       
-      setTestResults(prev => ({
+      setTestResults((prev: TestResults) => ({
         ...prev,
         discoveryTest: {
           status: response.status,
@@ -49,7 +55,7 @@ export default function DebugOIDCPage() {
         }
       }))
     } catch (error) {
-      setTestResults(prev => ({
+      setTestResults((prev: TestResults) => ({
         ...prev,
         discoveryTest: {
           error: error instanceof Error ? error.message : 'Unknown error'
@@ -66,7 +72,7 @@ export default function DebugOIDCPage() {
       clientId: 'fd1297925826a23aed846c170a33fcbc',
     }
     
-    setTestResults(prev => ({
+    setTestResults((prev: TestResults) => ({
       ...prev,
       currentConfig: config
     }))

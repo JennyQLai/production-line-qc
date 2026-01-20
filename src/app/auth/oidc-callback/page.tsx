@@ -1,14 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { handleOIDCCallback, signInWithOIDCToken } from '@/lib/auth/oidcService'
 
 /**
- * OIDC 回调处理页面（客户端）
- * 处理 PKCE code_verifier（存在 sessionStorage）
+ * OIDC 回调处理组件（需要 Suspense）
  */
-export default function OIDCCallbackPage() {
+function OIDCCallbackContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [error, setError] = useState<string | null>(null)
@@ -118,5 +117,24 @@ export default function OIDCCallbackPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * OIDC 回调处理页面（客户端）
+ * 处理 PKCE code_verifier（存在 sessionStorage）
+ */
+export default function OIDCCallbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">加载中...</p>
+        </div>
+      </div>
+    }>
+      <OIDCCallbackContent />
+    </Suspense>
   )
 }
