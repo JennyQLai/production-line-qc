@@ -54,13 +54,12 @@ export async function POST(request: NextRequest) {
     
     console.log('📍 Token endpoint:', discovery.token_endpoint)
     
-    // 使用 Basic Auth (client_secret_basic) 而不是 POST body
+    // 尝试方法 1: Basic Auth + client_id in body
+    console.log('🔄 Trying Method 1: Basic Auth + client_id in body')
+    
     const basic = Buffer.from(`${OIDC_SERVER_CONFIG.clientId}:${OIDC_SERVER_CONFIG.clientSecret}`).toString('base64')
     
-    console.log('🔐 Using Basic Auth with client_id:', OIDC_SERVER_CONFIG.clientId)
-    
-    // 使用 discovery 返回的 token_endpoint 交换授权码
-    const tokenResponse = await fetch(discovery.token_endpoint, {
+    let tokenResponse = await fetch(discovery.token_endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -71,24 +70,50 @@ export async function POST(request: NextRequest) {
         code,
         redirect_uri: redirectUri,
         code_verifier: codeVerifier,
-        // 不再在 body 中传递 client_id 和 client_secret，使用 Basic Auth
+        client_id: OIDC_SERVER_CONFIG.clientId, // 添加 client_id 到 body
       }),
     })
     
-    // 🔍 详细日志 - IdP 原始响应
-    const tokenText = await tokenResponse.text()
-    console.log('📊 IdP token status:', tokenResponse.status)
-    console.log('📊 IdP token headers:', Object.fromEntries(tokenResponse.headers.entries()))
-    console.log('📊 IdP token raw body:', tokenText)
+    let tokenText = await tokenResponse.text()
+    console.log('📊 Method 1 - IdP token status:', tokenResponse.status)
+    console.log('📊 Method 1 - IdP token raw body:', tokenText)
+    
+    // 如果方法 1 失败，尝试方法 2: client_secret_post
+    if (!tokenResponse.ok) {
+      console.log('❌ Method 1 failed, trying Method 2: client_secret_post')
+      
+      tokenResponse = await fetch(discovery.token_endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          // 不使用 Authorization header
+        },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          code_verifier: codeVerifier,
+          client_id: OIDC_SERVER_CONFIG.clientId,
+          client_secret: OIDC_SERVER_CONFIG.clientSecret, // client_secret 在 body 中
+        }),
+      })
+      
+      tokenText = await tokenResponse.text()
+      console.log('📊 Method 2 - IdP token status:', tokenResponse.status)
+      console.log('📊 Method 2 - IdP token raw body:', tokenText)
+    } else {
+      console.log('✅ Method 1 succeeded!')
+    }
     
     if (!tokenResponse.ok) {
-      console.error('❌ Token exchange failed with status:', tokenResponse.status)
+      console.error('❌ Both methods failed. Final status:', tokenResponse.status)
       return NextResponse.json(
         { 
           error: 'Token exchange failed', 
           details: tokenText,
           status: tokenResponse.status,
-          endpoint: discovery.token_endpoint
+          endpoint: discovery.token_endpoint,
+          methods_tried: ['basic_auth_with_client_id', 'client_secret_post']
         },
         { status: tokenResponse.status }
       )
