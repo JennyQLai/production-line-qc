@@ -44,39 +44,74 @@ export async function POST(request: NextRequest) {
       )
     }
     
+    console.log('🔍 OIDC Exchange Debug:')
+    console.log('  - Code:', code.substring(0, 20) + '...')
+    console.log('  - Redirect URI:', redirectUri)
+    console.log('  - Code Verifier:', codeVerifier.substring(0, 20) + '...')
+    
     // 获取 OIDC discovery 配置
     const discovery = await getOIDCDiscovery()
     
-    console.log('Token endpoint:', discovery.token_endpoint)
+    console.log('📍 Token endpoint:', discovery.token_endpoint)
+    
+    // 使用 Basic Auth (client_secret_basic) 而不是 POST body
+    const basic = Buffer.from(`${OIDC_SERVER_CONFIG.clientId}:${OIDC_SERVER_CONFIG.clientSecret}`).toString('base64')
+    
+    console.log('🔐 Using Basic Auth with client_id:', OIDC_SERVER_CONFIG.clientId)
     
     // 使用 discovery 返回的 token_endpoint 交换授权码
     const tokenResponse = await fetch(discovery.token_endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${basic}`,
       },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
         redirect_uri: redirectUri,
-        client_id: OIDC_SERVER_CONFIG.clientId,
-        client_secret: OIDC_SERVER_CONFIG.clientSecret,
         code_verifier: codeVerifier,
+        // 不再在 body 中传递 client_id 和 client_secret，使用 Basic Auth
       }),
     })
     
+    // 🔍 详细日志 - IdP 原始响应
+    const tokenText = await tokenResponse.text()
+    console.log('📊 IdP token status:', tokenResponse.status)
+    console.log('📊 IdP token headers:', Object.fromEntries(tokenResponse.headers.entries()))
+    console.log('📊 IdP token raw body:', tokenText)
+    
     if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text()
-      console.error('Token exchange failed:', errorText)
+      console.error('❌ Token exchange failed with status:', tokenResponse.status)
       return NextResponse.json(
-        { error: 'Token exchange failed', details: errorText },
+        { 
+          error: 'Token exchange failed', 
+          details: tokenText,
+          status: tokenResponse.status,
+          endpoint: discovery.token_endpoint
+        },
         { status: tokenResponse.status }
       )
     }
     
-    const tokens = await tokenResponse.json()
+    // 解析 tokens
+    let tokens
+    try {
+      tokens = JSON.parse(tokenText)
+      console.log('✅ Token exchange successful, got access_token:', tokens.access_token ? 'present' : 'missing')
+    } catch (parseError) {
+      console.error('❌ Failed to parse token response as JSON:', parseError)
+      return NextResponse.json(
+        { 
+          error: 'Invalid token response format', 
+          details: tokenText,
+          parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error'
+        },
+        { status: 500 }
+      )
+    }
     
-    console.log('Userinfo endpoint:', discovery.userinfo_endpoint)
+    console.log('📍 Userinfo endpoint:', discovery.userinfo_endpoint)
     
     // 使用 discovery 返回的 userinfo_endpoint 获取用户信息
     const userInfoResponse = await fetch(discovery.userinfo_endpoint, {
@@ -85,18 +120,42 @@ export async function POST(request: NextRequest) {
       },
     })
     
+    // 🔍 详细日志 - UserInfo 响应
+    const userInfoText = await userInfoResponse.text()
+    console.log('📊 UserInfo status:', userInfoResponse.status)
+    console.log('📊 UserInfo raw body:', userInfoText)
+    
     if (!userInfoResponse.ok) {
-      const errorText = await userInfoResponse.text()
-      console.error('Userinfo fetch failed:', errorText)
+      console.error('❌ UserInfo fetch failed with status:', userInfoResponse.status)
       return NextResponse.json(
-        { error: 'Failed to fetch user info', details: errorText },
+        { 
+          error: 'Failed to fetch user info', 
+          details: userInfoText,
+          status: userInfoResponse.status,
+          endpoint: discovery.userinfo_endpoint
+        },
         { status: userInfoResponse.status }
       )
     }
     
-    const userInfo = await userInfoResponse.json()
+    // 解析 userInfo
+    let userInfo
+    try {
+      userInfo = JSON.parse(userInfoText)
+      console.log('✅ UserInfo fetch successful, user:', userInfo.email || userInfo.sub || 'unknown')
+    } catch (parseError) {
+      console.error('❌ Failed to parse userinfo response as JSON:', parseError)
+      return NextResponse.json(
+        { 
+          error: 'Invalid userinfo response format', 
+          details: userInfoText,
+          parseError: parseError instanceof Error ? parseError.message : 'Unknown parse error'
+        },
+        { status: 500 }
+      )
+    }
     
-    console.log('OIDC login successful:', userInfo.email || userInfo.sub)
+    console.log('🎉 OIDC login successful for user:', userInfo.email || userInfo.sub)
     
     // 返回 tokens 和 userInfo
     return NextResponse.json({
@@ -104,9 +163,13 @@ export async function POST(request: NextRequest) {
       userInfo,
     })
   } catch (error) {
-    console.error('OIDC exchange error:', error)
+    console.error('💥 OIDC exchange error:', error)
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: 'Internal server error', 
+        details: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      },
       { status: 500 }
     )
   }
