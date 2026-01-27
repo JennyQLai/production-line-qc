@@ -206,9 +206,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signUp = async (email: string, password: string) => {
+    // Get the site URL from environment or current origin
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 
+                   (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
+    
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        // Redirect to login page after email confirmation
+        emailRedirectTo: `${siteUrl}/auth/login?message=email_confirmed`,
+      },
     })
     
     // If signup successful and user is created, create a profile
@@ -230,10 +238,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signInWithMagicLink = async (email: string) => {
+    // Get the site URL from environment or current origin
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 
+                   (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000')
+    
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: `${siteUrl}/auth/callback`,
       },
     })
     return { error }

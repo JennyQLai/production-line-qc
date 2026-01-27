@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthActions } from '@/lib/auth/hooks'
 import { startEnterpriseLogin, getEnterpriseAuthProviderName, isEnterpriseAuthAvailable } from '@/lib/auth/enterpriseAuth'
 
@@ -18,8 +19,20 @@ export function LoginForm({ onSuccess, className = '' }: LoginFormProps) {
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<'signin' | 'signup' | 'magic'>('signin')
   const [message, setMessage] = useState<string | null>(null)
-
+  
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { signIn, signUp, signInWithMagicLink } = useAuthActions()
+
+  // Check for URL messages (like email confirmation)
+  useEffect(() => {
+    const urlMessage = searchParams.get('message')
+    if (urlMessage === 'email_confirmed') {
+      setMessage('邮箱验证成功！您现在可以登录了。')
+      // Clear the URL parameter
+      router.replace('/auth/login', { scroll: false })
+    }
+  }, [searchParams, router])
 
   // Handle enterprise login
   const handleEnterpriseLogin = async () => {
@@ -49,6 +62,12 @@ export function LoginForm({ onSuccess, className = '' }: LoginFormProps) {
         result = await signIn(email, password)
       } else if (mode === 'signup') {
         result = await signUp(email, password)
+        if (!result.error) {
+          setMessage('注册成功！请检查您的邮箱并点击确认链接来激活账户。')
+          // Clear form after successful signup
+          setEmail('')
+          setPassword('')
+        }
       } else {
         result = await signInWithMagicLink(email)
         if (!result.error) {
