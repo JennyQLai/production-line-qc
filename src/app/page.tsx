@@ -1,264 +1,279 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { AuthGuard } from "@/components/auth";
-import { ProfileDisplay } from "@/components/profile";
-import { MockApiToggle } from "@/components/admin/MockApiConfig";
-import TestPanel from "@/components/admin/TestPanel";
+import { useState, useEffect } from 'react';
+import { useAuth } from '@/lib/auth/context';
+import AuthGuard from '@/components/auth/AuthGuard';
 import BarcodeInput from '@/components/qc/BarcodeInput';
 import CameraCapture from '@/components/qc/CameraCapture';
-import ResultPanel from '@/components/qc/ResultPanel';
-import { jobService, photoService, edgeApiService } from '@/lib/services';
-import type { Database } from '@/lib/types/database';
+import InferenceResult from '@/components/qc/InferenceResult';
+import { edgeInferenceService, InspectionRecord } from '@/lib/services/edgeInferenceService';
 
-type Job = Database['public']['Tables']['jobs']['Row'];
-type QCStep = 'barcode' | 'camera' | 'result';
+type AppState = 'barcode' | 'camera' | 'processing' | 'result';
 
-export default function Home() {
-  const isDemoMode = process.env.NEXT_PUBLIC_SUPABASE_URL === 'your_supabase_project_url' || 
-                    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-                    process.env.NEXT_PUBLIC_SUPABASE_URL === 'https://demo.supabase.co';
+interface ProcessingStatus {
+  stage: string;
+  progress: number;
+}
 
-  const [currentStep, setCurrentStep] = useState<QCStep>('barcode');
-  const [currentJob, setCurrentJob] = useState<Job | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isPolling, setIsPolling] = useState(false);
+export default function HomePage() {
+  const { user, profile } = useAuth();
+  const [currentState, setCurrentState] = useState<AppState>('barcode');
+  const [barcode, setBarcode] = useState('');
+  const [jobId, setJobId] = useState('');
+  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>({ stage: '', progress: 0 });
+  const [result, setResult] = useState<InspectionRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'processing' | 'completed' | 'error'>('idle');
-  const [testBarcode, setTestBarcode] = useState<string>(''); // 新增：测试条形码状态
+  const [edgeApiHealth, setEdgeApiHealth] = useState<{
+    isHealthy: boolean;
+    responseTime?: number;
+    error?: string;
+    modelLoaded?: boolean;
+  } | null>(null);
 
-  // Handle barcode submission
-  const handleBarcodeSubmit = useCallback(async (barcode: string) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Create new job
-      const job = await jobService.createJob({ barcode });
-      setCurrentJob(job);
-      setCurrentStep('camera');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '创建任务失败');
-    } finally {
-      setIsLoading(false);
-    }
+  // Check edge API health on component mount
+  useEffect(() => {
+    checkEdgeApiHealth();
   }, []);
 
-  // Handle photo capture
-  const handlePhotoCapture = useCallback(async (photoBlob: Blob) => {
-    if (!currentJob) return;
-
-    setIsLoading(true);
-    setError(null);
-    setUploadStatus('uploading');
-    setUploadProgress(0);
-
+  const checkEdgeApiHealth = async () => {
     try {
-      // Update job status to uploading
-      await jobService.updateJob({
-        id: currentJob.id,
-        status: 'uploading'
+      const health = await edgeInferenceService.checkHealth();
+      setEdgeApiHealth(health);
+    } catch (error) {
+      console.error('Failed to check edge API health:', error);
+      setEdgeApiHealth({
+        isHealthy: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
+
+  const handleBarcodeSubmit = (inputBarcode: string) => {
+    setBarcode(inputBarcode);
+    setJobId(`job_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
+    setError(null);
+    setCurrentState('camera');
+  };
+
+  const handlePhotoCapture = async (photoBlob: Blob) => {
+    setCurrentState('processing');
+    setProcessingStatus({ stage: '准备处理...', progress: 0 });
+    
+    try {
+      console.log('🚀 Starting inference workflow:', {
+        barcode,
+        fileSize: photoBlob.size,
+        fileType: photoBlob.type
       });
 
-      // Upload photo with progress tracking
-      const uploadResult = await photoService.uploadPhoto(
-        {
-          jobId: currentJob.id,
-          photoBlob
-        },
-        (progressData) => {
-          setUploadProgress(progressData.progress);
-          console.log('Upload progress:', progressData);
+      const inspectionResult = await edgeInferenceService.processInference(
+        photoBlob,
+        barcode,
+        (stage, progress) => {
+          setProcessingStatus({ stage, progress });
         }
       );
 
-      setUploadStatus('processing');
-      setUploadProgress(100);
-
-      // Call edge API for analysis
-      await edgeApiService.processQualityCheck(
-        currentJob.id,
-        currentJob.barcode,
-        uploadResult.publicUrl
-      );
-
-      // Start polling for results
-      setIsPolling(true);
-      const pollingResult = await jobService.pollJobStatus(
-        currentJob.id,
-        (updatedJob) => {
-          setCurrentJob(updatedJob);
-        }
-      );
-
-      setCurrentJob(pollingResult.job);
-      setUploadStatus('completed');
-      setCurrentStep('result');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '处理失败');
-      setUploadStatus('error');
-    } finally {
-      setIsLoading(false);
-      setIsPolling(false);
+      console.log('✅ Inference completed:', inspectionResult);
+      
+      setResult(inspectionResult);
+      setCurrentState('result');
+    } catch (error) {
+      console.error('❌ Inference failed:', error);
+      setError(error instanceof Error ? error.message : '推理处理失败，请重试');
+      setCurrentState('camera'); // Go back to camera for retry
     }
-  }, [currentJob]);
+  };
 
-  // Handle camera cancel
-  const handleCameraCancel = useCallback(() => {
-    setCurrentStep('barcode');
-    setCurrentJob(null);
-  }, []);
-
-  // Handle start next job
-  const handleStartNext = useCallback(() => {
-    setCurrentStep('barcode');
-    setCurrentJob(null);
+  const handleCameraCancel = () => {
+    setCurrentState('barcode');
+    setBarcode('');
+    setJobId('');
     setError(null);
-    setUploadProgress(0);
-    setUploadStatus('idle');
-    setTestBarcode(''); // 清除测试条形码
-  }, []);
+  };
 
-  // Handle test barcode selection
-  const handleTestBarcodeSelect = useCallback((barcode: string) => {
-    setTestBarcode(barcode);
-  }, []);
+  const handleResultClose = () => {
+    setCurrentState('barcode');
+    setBarcode('');
+    setJobId('');
+    setResult(null);
+    setError(null);
+  };
+
+  const handleNewInspection = () => {
+    setCurrentState('barcode');
+    setBarcode('');
+    setJobId('');
+    setResult(null);
+    setError(null);
+  };
+
+  const getUploadStatus = () => {
+    if (currentState === 'processing') {
+      if (processingStatus.progress < 50) return 'uploading';
+      if (processingStatus.progress < 100) return 'processing';
+      return 'completed';
+    }
+    return 'idle';
+  };
 
   return (
     <AuthGuard>
       <div className="min-h-screen bg-gray-50">
-        <div className="max-w-4xl mx-auto py-4 sm:py-8 px-4">
-          {/* Demo Mode Banner */}
-          {isDemoMode && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6">
+        {/* Header */}
+        <header className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
               <div className="flex items-center">
-                <svg className="w-5 h-5 text-blue-600 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-blue-800 font-medium text-sm sm:text-base">当前运行在演示模式</span>
-                <a
-                  href="/demo-info"
-                  className="ml-auto text-blue-600 hover:text-blue-800 text-xs sm:text-sm underline"
-                >
-                  了解更多
-                </a>
-              </div>
-            </div>
-          )}
-
-          {/* Header */}
-          <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-              <div className="mb-4 sm:mb-0">
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">
-                  产线拍照质检系统
+                <h1 className="text-xl font-semibold text-gray-900">
+                  生产线质检系统
                 </h1>
-                <ProfileDisplay />
+                {profile?.station && (
+                  <span className="ml-3 px-2 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
+                    {profile.station}
+                  </span>
+                )}
               </div>
-              <a
-                href="/history"
-                className="bg-green-600 text-white px-4 py-3 sm:py-2 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center touch-manipulation"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                历史记录
-              </a>
+              
+              <div className="flex items-center space-x-4">
+                {/* Edge API Status */}
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    edgeApiHealth?.isHealthy ? 'bg-green-500' : 'bg-red-500'
+                  }`}></div>
+                  <span className="text-sm text-gray-600">
+                    边缘推理 {edgeApiHealth?.isHealthy ? '在线' : '离线'}
+                  </span>
+                  {edgeApiHealth?.responseTime && (
+                    <span className="text-xs text-gray-500">
+                      ({edgeApiHealth.responseTime}ms)
+                    </span>
+                  )}
+                </div>
+                
+                <div className="text-sm text-gray-600">
+                  {user?.email}
+                </div>
+              </div>
             </div>
           </div>
+        </header>
 
-          {/* Step indicator */}
-          <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 mb-4 sm:mb-6">
-            <div className="flex items-center justify-center space-x-2 sm:space-x-4">
-              <div className={`w-6 sm:w-8 h-6 sm:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-medium ${
-                currentStep === 'barcode' ? 'bg-blue-600 text-white' : 
-                ['camera', 'result'].includes(currentStep) ? 'bg-green-600 text-white' : 
-                'bg-gray-300 text-gray-600'
-              }`}>
-                1
-              </div>
-              <span className={`text-xs sm:text-sm ${currentStep === 'barcode' ? 'text-blue-600 font-medium' : 'text-gray-600'}`}>
-                扫码
-              </span>
-              
-              <div className={`w-8 sm:w-12 h-1 ${['camera', 'result'].includes(currentStep) ? 'bg-green-600' : 'bg-gray-300'}`}></div>
-              
-              <div className={`w-6 sm:w-8 h-6 sm:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-medium ${
-                currentStep === 'camera' ? 'bg-blue-600 text-white' : 
-                currentStep === 'result' ? 'bg-green-600 text-white' : 
-                'bg-gray-300 text-gray-600'
-              }`}>
-                2
-              </div>
-              <span className={`text-xs sm:text-sm ${currentStep === 'camera' ? 'text-blue-600 font-medium' : 'text-gray-600'}`}>
-                拍照
-              </span>
-              
-              <div className={`w-8 sm:w-12 h-1 ${currentStep === 'result' ? 'bg-green-600' : 'bg-gray-300'}`}></div>
-              
-              <div className={`w-6 sm:w-8 h-6 sm:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-medium ${
-                currentStep === 'result' ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'
-              }`}>
-                3
-              </div>
-              <span className={`text-xs sm:text-sm ${currentStep === 'result' ? 'text-blue-600 font-medium' : 'text-gray-600'}`}>
-                结果
-              </span>
-            </div>
-          </div>
-
-          {/* Error display */}
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4 mb-4 sm:mb-6">
-              <div className="flex items-start">
-                <svg className="w-5 h-5 text-red-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+        {/* Main Content */}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Edge API Health Warning */}
+          {edgeApiHealth && !edgeApiHealth.isHealthy && (
+            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-center">
+                <svg className="w-5 h-5 text-yellow-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                 </svg>
-                <span className="text-red-800 font-medium text-sm sm:text-base break-words">{error}</span>
+                <div>
+                  <h3 className="text-sm font-medium text-yellow-800">边缘推理服务异常</h3>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    {edgeApiHealth.error || '无法连接到边缘推理服务，请检查网络连接或联系管理员'}
+                  </p>
+                  <button
+                    onClick={checkEdgeApiHealth}
+                    className="mt-2 text-sm text-yellow-800 hover:text-yellow-900 underline"
+                  >
+                    重新检查
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* Main QC Content */}
-          <div className="bg-white rounded-lg shadow-md p-4 sm:p-6">
-            {currentStep === 'barcode' && (
+          {/* Error Display */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex items-center">
+                <svg className="w-5 h-5 text-red-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <div>
+                  <h3 className="text-sm font-medium text-red-800">处理错误</h3>
+                  <p className="text-sm text-red-700 mt-1">{error}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Content based on current state */}
+          <div className="flex justify-center">
+            {currentState === 'barcode' && (
               <BarcodeInput
                 onBarcodeSubmit={handleBarcodeSubmit}
-                isLoading={isLoading}
-                autoFocus={true}
-                initialBarcode={testBarcode}
+                placeholder="请输入或扫描产品条码"
               />
             )}
 
-            {currentStep === 'camera' && currentJob && (
+            {currentState === 'camera' && (
               <CameraCapture
+                jobId={jobId}
                 onPhotoCapture={handlePhotoCapture}
                 onCancel={handleCameraCancel}
-                jobId={currentJob.id}
-                uploadProgress={uploadProgress}
-                uploadStatus={uploadStatus}
+                uploadProgress={processingStatus.progress}
+                uploadStatus={getUploadStatus()}
               />
             )}
 
-            {currentStep === 'result' && currentJob && (
-              <ResultPanel
-                job={currentJob}
-                onStartNext={handleStartNext}
-                isPolling={isPolling}
+            {currentState === 'processing' && (
+              <div className="w-full max-w-md mx-auto p-6 bg-white rounded-lg shadow-lg">
+                <div className="text-center">
+                  <div className="mb-4">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                  </div>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    正在处理图片
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {processingStatus.stage}
+                  </p>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${processingStatus.progress}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    {processingStatus.progress}%
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {currentState === 'result' && result && (
+              <InferenceResult
+                result={result}
+                onClose={handleResultClose}
+                onNewInspection={handleNewInspection}
               />
             )}
           </div>
-        </div>
+
+          {/* Quick Actions */}
+          {currentState === 'barcode' && (
+            <div className="mt-8 text-center">
+              <div className="inline-flex space-x-4">
+                <a
+                  href="/history"
+                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                >
+                  查看历史记录
+                </a>
+                <span className="text-gray-300">|</span>
+                <button
+                  onClick={checkEdgeApiHealth}
+                  className="text-gray-600 hover:text-gray-800 text-sm font-medium"
+                >
+                  检查系统状态
+                </button>
+              </div>
+            </div>
+          )}
+        </main>
       </div>
-      
-      {/* Mock API Configuration (only in demo mode) */}
-      <MockApiToggle />
-      
-      {/* Test Panel (only in demo mode) */}
-      {isDemoMode && (
-        <TestPanel onSelectBarcode={handleTestBarcodeSelect} />
-      )}
     </AuthGuard>
   );
 }

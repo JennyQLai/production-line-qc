@@ -1,0 +1,431 @@
+/**
+ * Edge Inference Service
+ * Handles communication with edge machine inference API
+ */
+
+import { createClient } from '@/lib/supabase/client'
+
+export interface EdgeInferenceRequest {
+  file: Blob
+  barcode: string
+  request_id: string
+}
+
+export interface EdgeDetection {
+  id: number
+  cls: number
+  conf: number
+  xyxy: [number, number, number, number] // [x1, y1, x2, y2]
+}
+
+export interface EdgeInferenceResponse {
+  request_id: string
+  barcode: string
+  time_ms: number
+  img_shape: {
+    width: number
+    height: number
+  }
+  detections: EdgeDetection[]
+  suggested_decision: 'PASS' | 'FAIL' | 'UNKNOWN'
+  model_version?: string
+}
+
+export interface InspectionRecord {
+  id?: string
+  barcode: string
+  edge_request_id: string
+  edge_url: string
+  model_version?: string
+  suggested_decision: 'PASS' | 'FAIL' | 'UNKNOWN'
+  raw_detections: EdgeDetection[]
+  inference_time_ms: number
+  img_shape: { width: number; height: number }
+  image_url?: string
+  image_size?: number
+  user_id?: string
+  profile_id?: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  error_message?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export class EdgeInferenceService {
+  private readonly baseUrl: string
+  private readonly timeout: number
+
+  constructor() {
+    this.baseUrl = process.env.NEXT_PUBLIC_EDGE_API_BASE_URL || 'http://221.226.60.30:8000'
+    this.timeout = 30000 // 30 seconds timeout
+  }
+
+  /**
+   * Check if edge API is available
+   */
+  async checkHealth(): Promise<{
+    isHealthy: boolean
+    responseTime?: number
+    error?: string
+    modelLoaded?: boolean
+  }> {
+    const startTime = Date.now()
+    
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout for health check
+
+      const response = await fetch(`${this.baseUrl}/health`, {
+        method: 'GET',
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+      const responseTime = Date.now() - startTime
+
+      if (!response.ok) {
+        return {
+          isHealthy: false,
+          responseTime,
+          error: `HTTP ${response.status}: ${response.statusText}`
+        }
+      }
+
+      const data = await response.json()
+      
+      return {
+        isHealthy: true,
+        responseTime,
+        modelLoaded: data.model_loaded || false
+      }
+    } catch (error) {
+      return {
+        isHealthy: false,
+        responseTime: Date.now() - startTime,
+        error: error instanceof Error ? error.message : String(error)
+      }
+    }
+  }
+
+  /**
+   * Send image for inference
+   */
+  async inferImage(request: EdgeInferenceRequest): Promise<EdgeInferenceResponse> {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+
+    try {
+      // Create FormData for multipart/form-data
+      const formData = new FormData()
+      formData.append('file', request.file)
+      formData.append('barcode', request.barcode)
+      formData.append('request_id', request.request_id)
+
+      console.log('🔍 Sending inference request:', {
+        baseUrl: this.baseUrl,
+        barcode: request.barcode,
+        requestId: request.request_id,
+        fileSize: request.file.size,
+        fileType: request.file.type
+      })
+
+      const response = await fetch(`${this.baseUrl}/infer`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Edge API error: ${response.status} ${response.statusText} - ${errorText}`)
+      }
+
+      const data = await response.json()
+      
+      console.log('✅ Inference response received:', {
+        requestId: data.request_id,
+        decision: data.suggested_decision,
+        detections: data.detections?.length || 0,
+        timeMs: data.time_ms
+      })
+
+      // Validate response format
+      if (!this.isValidInferenceResponse(data)) {
+        throw new Error('Invalid inference response format')
+      }
+
+      return data
+    } catch (error) {
+      clearTimeout(timeoutId)
+      
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`推理请求超时 (${this.timeout}ms)`)
+      }
+      
+      console.error('❌ Inference request failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * Process complete inference workflow: upload image, infer, save record
+   */
+  async processInference(
+    file: Blob,
+    barcode: string,
+    onProgress?: (stage: string, progress: number) => void
+  ): Promise<InspectionRecord> {
+    const requestId = this.generateRequestId()
+    
+    try {
+      onProgress?.('准备推理请求...', 10)
+
+      // Step 1: Upload image to Supabase Storage (optional, for record keeping)
+      let imageUrl: string | undefined
+      let imageSize = file.size
+      
+      try {
+        onProgress?.('上传图片...', 30)
+        imageUrl = await this.uploadImage(file, requestId)
+      } catch (uploadError) {
+        console.warn('Image upload failed, continuing without storage:', uploadError)
+        // Continue without image storage - inference can still work
+      }
+
+      onProgress?.('发送推理请求...', 50)
+
+      // Step 2: Send inference request
+      const inferenceResult = await this.inferImage({
+        file,
+        barcode,
+        request_id: requestId
+      })
+
+      onProgress?.('保存推理记录...', 80)
+
+      // Step 3: Save inspection record to database
+      const record = await this.saveInspectionRecord({
+        barcode,
+        edge_request_id: requestId,
+        edge_url: this.baseUrl,
+        model_version: inferenceResult.model_version,
+        suggested_decision: inferenceResult.suggested_decision,
+        raw_detections: inferenceResult.detections,
+        inference_time_ms: inferenceResult.time_ms,
+        img_shape: inferenceResult.img_shape,
+        image_url: imageUrl,
+        image_size: imageSize,
+        status: 'completed'
+      })
+
+      onProgress?.('完成', 100)
+
+      console.log('🎉 Inference workflow completed:', {
+        recordId: record.id,
+        decision: record.suggested_decision,
+        detections: record.raw_detections.length
+      })
+
+      return record
+    } catch (error) {
+      console.error('💥 Inference workflow failed:', error)
+      
+      // Try to save error record
+      try {
+        const errorRecord = await this.saveInspectionRecord({
+          barcode,
+          edge_request_id: requestId,
+          edge_url: this.baseUrl,
+          suggested_decision: 'UNKNOWN',
+          raw_detections: [],
+          inference_time_ms: 0,
+          img_shape: { width: 0, height: 0 },
+          image_size: file.size,
+          status: 'failed',
+          error_message: error instanceof Error ? error.message : String(error)
+        })
+        
+        return errorRecord
+      } catch (saveError) {
+        console.error('Failed to save error record:', saveError)
+        throw error // Re-throw original error
+      }
+    }
+  }
+
+  /**
+   * Upload image to Supabase Storage
+   */
+  private async uploadImage(file: Blob, requestId: string): Promise<string> {
+    const supabase = createClient()
+    
+    // Generate unique filename
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const filename = `inference-${requestId}-${timestamp}.jpg`
+    
+    const { data, error } = await supabase.storage
+      .from('inspection-images')
+      .upload(filename, file, {
+        contentType: file.type || 'image/jpeg',
+        upsert: false
+      })
+
+    if (error) {
+      throw new Error(`Image upload failed: ${error.message}`)
+    }
+
+    // Get public URL
+    const { data: urlData } = supabase.storage
+      .from('inspection-images')
+      .getPublicUrl(data.path)
+
+    return urlData.publicUrl
+  }
+
+  /**
+   * Save inspection record to database
+   */
+  private async saveInspectionRecord(record: Omit<InspectionRecord, 'id' | 'created_at' | 'updated_at'>): Promise<InspectionRecord> {
+    const supabase = createClient()
+    
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    // Get user profile
+    let profileId: string | undefined
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .single()
+      
+      profileId = profile?.id
+    }
+
+    const recordData = {
+      ...record,
+      user_id: user?.id,
+      profile_id: profileId
+    }
+
+    const { data, error } = await supabase
+      .from('inspections')
+      .insert(recordData)
+      .select()
+      .single()
+
+    if (error) {
+      throw new Error(`Failed to save inspection record: ${error.message}`)
+    }
+
+    return data
+  }
+
+  /**
+   * Get inspection records with pagination
+   */
+  async getInspections(options: {
+    limit?: number
+    offset?: number
+    barcode?: string
+    status?: string
+    userId?: string
+  } = {}): Promise<{
+    data: InspectionRecord[]
+    count: number
+  }> {
+    const supabase = createClient()
+    
+    let query = supabase
+      .from('inspections')
+      .select('*', { count: 'exact' })
+      .order('created_at', { ascending: false })
+
+    if (options.barcode) {
+      query = query.ilike('barcode', `%${options.barcode}%`)
+    }
+
+    if (options.status) {
+      query = query.eq('status', options.status)
+    }
+
+    if (options.userId) {
+      query = query.eq('user_id', options.userId)
+    }
+
+    if (options.limit) {
+      query = query.limit(options.limit)
+    }
+
+    if (options.offset) {
+      query = query.range(options.offset, options.offset + (options.limit || 10) - 1)
+    }
+
+    const { data, error, count } = await query
+
+    if (error) {
+      throw new Error(`Failed to fetch inspections: ${error.message}`)
+    }
+
+    return {
+      data: data || [],
+      count: count || 0
+    }
+  }
+
+  /**
+   * Get single inspection by ID
+   */
+  async getInspection(id: string): Promise<InspectionRecord | null> {
+    const supabase = createClient()
+    
+    const { data, error } = await supabase
+      .from('inspections')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null // Not found
+      }
+      throw new Error(`Failed to fetch inspection: ${error.message}`)
+    }
+
+    return data
+  }
+
+  /**
+   * Generate unique request ID
+   */
+  private generateRequestId(): string {
+    const timestamp = Date.now()
+    const random = Math.random().toString(36).substring(2, 8)
+    return `req_${timestamp}_${random}`
+  }
+
+  /**
+   * Validate inference response format
+   */
+  private isValidInferenceResponse(data: any): data is EdgeInferenceResponse {
+    return (
+      typeof data === 'object' &&
+      data !== null &&
+      typeof data.request_id === 'string' &&
+      typeof data.barcode === 'string' &&
+      typeof data.time_ms === 'number' &&
+      typeof data.img_shape === 'object' &&
+      typeof data.img_shape.width === 'number' &&
+      typeof data.img_shape.height === 'number' &&
+      Array.isArray(data.detections) &&
+      typeof data.suggested_decision === 'string' &&
+      ['PASS', 'FAIL', 'UNKNOWN'].includes(data.suggested_decision)
+    )
+  }
+}
+
+// Export singleton instance
+export const edgeInferenceService = new EdgeInferenceService()

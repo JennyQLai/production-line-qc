@@ -3,15 +3,27 @@
 import { useState, useRef, useEffect } from 'react';
 
 interface BarcodeInputProps {
-  onBarcodeSubmit: (barcode: string) => void;
-  isLoading: boolean;
-  autoFocus: boolean;
-  initialBarcode?: string; // 新增：支持外部设置初始值
+  onBarcodeSubmit?: (barcode: string) => void;
+  onSubmit?: (barcode: string) => void; // Alternative prop name for compatibility
+  isLoading?: boolean;
+  autoFocus?: boolean;
+  initialBarcode?: string;
+  placeholder?: string;
 }
 
-export default function BarcodeInput({ onBarcodeSubmit, isLoading, autoFocus, initialBarcode }: BarcodeInputProps) {
+export default function BarcodeInput({ 
+  onBarcodeSubmit, 
+  onSubmit, 
+  isLoading = false, 
+  autoFocus = true, 
+  initialBarcode,
+  placeholder = "请输入或扫描产品条码"
+}: BarcodeInputProps) {
   const [barcode, setBarcode] = useState(initialBarcode || '');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Use either prop for backward compatibility
+  const handleSubmitCallback = onBarcodeSubmit || onSubmit;
 
   useEffect(() => {
     if (autoFocus && inputRef.current) {
@@ -21,8 +33,8 @@ export default function BarcodeInput({ onBarcodeSubmit, isLoading, autoFocus, in
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (barcode.trim() && !isLoading) {
-      onBarcodeSubmit(barcode.trim());
+    if (barcode.trim() && !isLoading && handleSubmitCallback) {
+      handleSubmitCallback(barcode.trim());
       setBarcode('');
     }
   };
@@ -34,8 +46,8 @@ export default function BarcodeInput({ onBarcodeSubmit, isLoading, autoFocus, in
     // Auto-submit when barcode scanner adds newline/enter
     if (value.includes('\n') || value.includes('\r')) {
       const cleanBarcode = value.replace(/[\n\r]/g, '').trim();
-      if (cleanBarcode && !isLoading) {
-        onBarcodeSubmit(cleanBarcode);
+      if (cleanBarcode && !isLoading && handleSubmitCallback) {
+        handleSubmitCallback(cleanBarcode);
         setBarcode('');
       }
     }
@@ -60,7 +72,7 @@ export default function BarcodeInput({ onBarcodeSubmit, isLoading, autoFocus, in
             value={barcode}
             onChange={handleInputChange}
             disabled={isLoading}
-            placeholder="扫描或输入条形码..."
+            placeholder={placeholder}
             className="w-full px-4 py-4 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed text-lg touch-manipulation"
             autoComplete="off"
             autoCapitalize="off"
