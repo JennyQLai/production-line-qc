@@ -6,6 +6,8 @@ interface TestResults {
   callbackTest?: any
   discoveryTest?: any
   currentConfig?: any
+  exchangeTest?: any
+  testApiTest?: any
 }
 
 /**
@@ -17,7 +19,7 @@ export default function DebugOIDCPage() {
 
   const testCallback = async () => {
     try {
-      const response = await fetch('/auth/oidc-callback', {
+      const response = await fetch('/auth/enterprise-callback', {
         method: 'GET',
       })
       
@@ -64,10 +66,82 @@ export default function DebugOIDCPage() {
     }
   }
 
+  const testExchangeApi = async () => {
+    try {
+      const response = await fetch('/api/oidc/exchange', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          code: 'test_code',
+          redirectUri: 'http://test.com/callback',
+          codeVerifier: 'test_verifier',
+        }),
+        redirect: 'manual',
+      })
+      
+      const responseText = await response.text()
+      
+      setTestResults((prev: TestResults) => ({
+        ...prev,
+        exchangeTest: {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok,
+          type: response.type,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: responseText,
+          isRedirect: response.status >= 300 && response.status < 400,
+        }
+      }))
+    } catch (error) {
+      setTestResults((prev: TestResults) => ({
+        ...prev,
+        exchangeTest: {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }))
+    }
+  }
+
+  const testApiRouting = async () => {
+    try {
+      const response = await fetch('/api/oidc/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          test: 'data',
+          timestamp: new Date().toISOString(),
+        }),
+      })
+      
+      const data = await response.json()
+      
+      setTestResults((prev: TestResults) => ({
+        ...prev,
+        testApiTest: {
+          status: response.status,
+          ok: response.ok,
+          data: data,
+        }
+      }))
+    } catch (error) {
+      setTestResults((prev: TestResults) => ({
+        ...prev,
+        testApiTest: {
+          error: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }))
+    }
+  }
+
   const getCurrentConfig = () => {
     const config = {
       origin: typeof window !== 'undefined' ? window.location.origin : 'N/A',
-      redirectUri: typeof window !== 'undefined' ? `${window.location.origin}/auth/oidc-callback` : 'N/A',
+      redirectUri: typeof window !== 'undefined' ? `${window.location.origin}/auth/enterprise-callback` : 'N/A',
       issuer: 'https://panovation.i234.me:5001/webman/sso',
       clientId: 'fd1297925826a23aed846c170a33fcbc',
     }
@@ -84,6 +158,41 @@ export default function DebugOIDCPage() {
         <h1 className="text-2xl font-bold text-gray-900 mb-8">OIDC 调试工具</h1>
         
         <div className="grid gap-6">
+          {/* API 路由测试 */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-lg font-semibold mb-4">API 路由测试</h2>
+            <div className="space-x-2 mb-4">
+              <button
+                onClick={testApiRouting}
+                className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700"
+              >
+                测试 /api/oidc/test
+              </button>
+              <button
+                onClick={testExchangeApi}
+                className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+              >
+                测试 /api/oidc/exchange (会失败)
+              </button>
+            </div>
+            {testResults.testApiTest && (
+              <div className="mb-4">
+                <h3 className="font-medium mb-2">Test API 结果:</h3>
+                <pre className="bg-gray-100 p-4 rounded text-sm overflow-auto">
+                  {JSON.stringify(testResults.testApiTest, null, 2)}
+                </pre>
+              </div>
+            )}
+            {testResults.exchangeTest && (
+              <div>
+                <h3 className="font-medium mb-2">Exchange API 结果:</h3>
+                <pre className="bg-gray-100 p-4 rounded text-sm overflow-auto">
+                  {JSON.stringify(testResults.exchangeTest, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+
           {/* 当前配置 */}
           <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-lg font-semibold mb-4">当前配置</h2>
@@ -107,7 +216,7 @@ export default function DebugOIDCPage() {
               onClick={testCallback}
               className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 mb-4"
             >
-              测试 /auth/oidc-callback
+              测试 /auth/enterprise-callback
             </button>
             {testResults.callbackTest && (
               <pre className="bg-gray-100 p-4 rounded text-sm overflow-auto">
@@ -137,11 +246,11 @@ export default function DebugOIDCPage() {
             <h2 className="text-lg font-semibold mb-4">手动测试</h2>
             <div className="space-y-2">
               <a
-                href="/auth/oidc-callback"
+                href="/auth/enterprise-callback"
                 target="_blank"
                 className="block text-blue-600 hover:text-blue-800 underline"
               >
-                直接访问 /auth/oidc-callback
+                直接访问 /auth/enterprise-callback
               </a>
               <a
                 href="/auth/login"

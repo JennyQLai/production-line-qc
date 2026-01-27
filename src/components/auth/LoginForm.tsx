@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useAuthActions } from '@/lib/auth/hooks'
-import { initiateOIDCLogin } from '@/lib/auth/oidcService'
+import { startEnterpriseLogin, getEnterpriseAuthProviderName, isEnterpriseAuthAvailable } from '@/lib/auth/enterpriseAuth'
 
 interface LoginFormProps {
   onSuccess?: () => void
@@ -13,25 +14,25 @@ export function LoginForm({ onSuccess, className = '' }: LoginFormProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [enterpriseLoading, setEnterpriseLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [mode, setMode] = useState<'signin' | 'signup' | 'magic'>('signin')
   const [message, setMessage] = useState<string | null>(null)
 
   const { signIn, signUp, signInWithMagicLink } = useAuthActions()
 
-  // OIDC 登录函数
-  const handleOIDCLogin = async () => {
-    setLoading(true)
+  // Handle enterprise login
+  const handleEnterpriseLogin = async () => {
+    setEnterpriseLoading(true)
     setError(null)
     
     try {
-      // 直接调用自定义 OIDC 登录服务
-      await initiateOIDCLogin()
-      // 函数会重定向到 OIDC 提供商，不会返回到这里
+      await startEnterpriseLogin()
+      // Function will redirect to enterprise provider, won't return here
     } catch (err) {
-      console.error('OIDC login error:', err)
-      setError('企业登录失败，请重试')
-      setLoading(false)
+      console.error('Enterprise login error:', err)
+      setError(err instanceof Error ? err.message : '企业登录失败，请重试')
+      setEnterpriseLoading(false)
     }
   }
 
@@ -99,6 +100,18 @@ export function LoginForm({ onSuccess, className = '' }: LoginFormProps) {
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               placeholder="输入您的密码"
             />
+            
+            {/* Forgot Password Link */}
+            {mode === 'signin' && (
+              <div className="mt-2 text-right">
+                <Link
+                  href="/auth/forgot-password"
+                  className="text-sm text-blue-600 hover:text-blue-500"
+                >
+                  忘记密码？
+                </Link>
+              </div>
+            )}
           </div>
         )}
 
@@ -124,27 +137,38 @@ export function LoginForm({ onSuccess, className = '' }: LoginFormProps) {
            mode === 'signup' ? '注册' : '发送登录链接'}
         </button>
 
-        {/* OIDC 企业登录 */}
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300" />
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">或使用企业账户登录</span>
-          </div>
-        </div>
+        {/* Enterprise Login Section */}
+        {isEnterpriseAuthAvailable() && (
+          <>
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">或使用企业账户登录</span>
+              </div>
+            </div>
 
-        <button
-          type="button"
-          onClick={handleOIDCLogin}
-          disabled={loading}
-          className="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-          </svg>
-          使用企业 OIDC 登录
-        </button>
+            <button
+              type="button"
+              onClick={handleEnterpriseLogin}
+              disabled={enterpriseLoading}
+              className="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
+            >
+              {enterpriseLoading ? (
+                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              )}
+              {enterpriseLoading ? '正在跳转...' : getEnterpriseAuthProviderName()}
+            </button>
+          </>
+        )}
 
         <div className="flex justify-center space-x-4 text-sm">
           <button

@@ -33,11 +33,17 @@ async function getOIDCDiscovery() {
 }
 
 export async function POST(request: NextRequest) {
+  console.log('🔍 Exchange API called - ensuring no redirects')
+  console.log('  - Request method:', request.method)
+  console.log('  - Request URL:', request.url)
+  console.log('  - Request headers:', Object.fromEntries(request.headers.entries()))
+  
   try {
     // 解析请求体
     const { code, redirectUri, codeVerifier } = await request.json()
     
     if (!code || !redirectUri || !codeVerifier) {
+      console.log('❌ Missing parameters, returning 400 JSON')
       return NextResponse.json(
         { error: 'Missing required parameters' },
         { status: 400 }
@@ -107,7 +113,7 @@ export async function POST(request: NextRequest) {
     
     if (!tokenResponse.ok) {
       console.error('❌ Both methods failed. Final status:', tokenResponse.status)
-      return NextResponse.json(
+      const errorResponse = NextResponse.json(
         { 
           error: 'Token exchange failed', 
           details: tokenText,
@@ -117,6 +123,9 @@ export async function POST(request: NextRequest) {
         },
         { status: tokenResponse.status }
       )
+      
+      console.log('❌ Returning error JSON response (no redirect)')
+      return errorResponse
     }
     
     // 解析 tokens
@@ -152,7 +161,7 @@ export async function POST(request: NextRequest) {
     
     if (!userInfoResponse.ok) {
       console.error('❌ UserInfo fetch failed with status:', userInfoResponse.status)
-      return NextResponse.json(
+      const errorResponse = NextResponse.json(
         { 
           error: 'Failed to fetch user info', 
           details: userInfoText,
@@ -161,6 +170,9 @@ export async function POST(request: NextRequest) {
         },
         { status: userInfoResponse.status }
       )
+      
+      console.log('❌ Returning userinfo error JSON response (no redirect)')
+      return errorResponse
     }
     
     // 解析 userInfo
@@ -183,13 +195,16 @@ export async function POST(request: NextRequest) {
     console.log('🎉 OIDC login successful for user:', userInfo.email || userInfo.sub)
     
     // 返回 tokens 和 userInfo
-    return NextResponse.json({
+    const successResponse = NextResponse.json({
       tokens,
       userInfo,
     })
+    
+    console.log('✅ Returning 200 JSON response (no redirect)')
+    return successResponse
   } catch (error) {
     console.error('💥 OIDC exchange error:', error)
-    return NextResponse.json(
+    const errorResponse = NextResponse.json(
       { 
         error: 'Internal server error', 
         details: error instanceof Error ? error.message : 'Unknown error',
@@ -197,5 +212,8 @@ export async function POST(request: NextRequest) {
       },
       { status: 500 }
     )
+    
+    console.log('💥 Returning 500 JSON response (no redirect)')
+    return errorResponse
   }
 }

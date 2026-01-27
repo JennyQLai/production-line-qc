@@ -11,8 +11,8 @@ const OIDC_CONFIG = {
   scopes: 'openid profile email',
   get redirectUri() {
     if (typeof window === 'undefined') return ''
-    // 使用客户端回调页面（可以访问 sessionStorage）
-    return `${window.location.origin}/auth/oidc-callback`
+    // 使用企业回调页面（统一入口）
+    return `${window.location.origin}/auth/enterprise-callback`
   }
 }
 
@@ -307,30 +307,52 @@ export async function handleOIDCCallback(code: string, state: string) {
       redirect: 'manual',
     })
     
+    console.log('📊 Exchange API response:', {
+      status: response.status,
+      statusText: response.statusText,
+      type: response.type,
+      url: response.url,
+      headers: Object.fromEntries(response.headers.entries())
+    })
+    
     // 检查是否是重定向响应
     if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-      console.error('Exchange API returned redirect:', response.status, response.headers.get('location'))
-      throw new Error('Token exchange API returned unexpected redirect')
+      const location = response.headers.get('location')
+      console.error('❌ Exchange API returned redirect:', response.status, 'Location:', location)
+      throw new Error(`Token exchange API returned unexpected redirect to: ${location}`)
     }
     
     if (!response.ok) {
       let errorData
+      let responseText = ''
+      
       try {
-        errorData = await response.json()
-      } catch {
-        // 如果不是 JSON，尝试获取文本
-        const errorText = await response.text()
-        errorData = { error: 'Unknown error', details: errorText }
+        responseText = await response.text()
+        console.log('📊 Exchange API error response body:', responseText)
+        
+        // 尝试解析为 JSON
+        errorData = JSON.parse(responseText)
+      } catch (parseError) {
+        console.warn('Failed to parse error response as JSON:', parseError)
+        errorData = { 
+          error: 'HTTP Error', 
+          details: responseText || `${response.status} ${response.statusText}`,
+          status: response.status,
+          statusText: response.statusText
+        }
       }
       
-      console.error('Token exchange failed:', {
+      console.error('❌ Token exchange failed:', {
         status: response.status,
         statusText: response.statusText,
         url: response.url,
-        errorData
+        errorData,
+        responseText
       })
       
-      throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
+      const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`
+      const errorDetails = errorData.details ? ` (${errorData.details})` : ''
+      throw new Error(`${errorMessage}${errorDetails}`)
     }
     
     const { tokens, userInfo } = await response.json()
