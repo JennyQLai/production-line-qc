@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth/context';
-import AuthGuard from '@/components/auth/AuthGuard';
+import { AuthGuard } from '@/components/auth/AuthGuard';
 import BarcodeInput from '@/components/qc/BarcodeInput';
 import CameraCapture from '@/components/qc/CameraCapture';
 import InferenceResult from '@/components/qc/InferenceResult';

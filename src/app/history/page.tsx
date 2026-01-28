@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/lib/auth/context';
-import AuthGuard from '@/components/auth/AuthGuard';
+import { AuthGuard } from '@/components/auth/AuthGuard';
 import { edgeInferenceService, InspectionRecord } from '@/lib/services/edgeInferenceService';
 
 export default function HistoryPage() {
