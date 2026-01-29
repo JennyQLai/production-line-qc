@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useAuth } from '@/lib/hooks/useAuth'
+import { useAuth } from '@/lib/auth'
 import { User, ChevronDown, LogOut } from 'lucide-react'
 
 export default function Navbar() {
