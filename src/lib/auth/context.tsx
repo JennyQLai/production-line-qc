@@ -158,12 +158,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Get initial session
       supabase.auth.getSession().then(async ({ data: { session } }) => {
         clearTimeout(loadingTimeout);
-        setSession(session)
-        setUser(session?.user ?? null)
         
-        if (session?.user) {
-          console.log('User found:', session.user.email, 'ID:', session.user.id);
-          forceSetProfile(session.user.id);
+        // 检查是否在退出登录后1小时内
+        const lastSignOutTime = localStorage.getItem('lastSignOutTime')
+        if (lastSignOutTime) {
+          const oneHour = 60 * 60 * 1000 // 1小时的毫秒数
+          const timeSinceSignOut = Date.now() - parseInt(lastSignOutTime)
+          
+          if (timeSinceSignOut < oneHour && session) {
+            // 在1小时内且有有效会话，自动登录
+            setSession(session)
+            setUser(session.user)
+            forceSetProfile(session.user.id)
+          } else if (timeSinceSignOut >= oneHour) {
+            // 超过1小时，清除会话
+            await supabase.auth.signOut()
+            localStorage.removeItem('lastSignOutTime')
+            setSession(null)
+            setUser(null)
+            setProfile(null)
+          }
+        } else {
+          // 没有退出登录记录，正常处理会话
+          setSession(session)
+          setUser(session?.user ?? null)
+          
+          if (session?.user) {
+            console.log('User found:', session.user.email, 'ID:', session.user.id);
+            forceSetProfile(session.user.id);
+          }
         }
         
         setLoading(false)
@@ -252,6 +275,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
+    // 记录退出登录时间
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('lastSignOutTime', Date.now().toString())
+    }
     const { error } = await supabase.auth.signOut()
     return { error }
   }

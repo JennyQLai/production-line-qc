@@ -14,5 +14,11 @@ export function createClient() {
     )
   }
   
-  return createBrowserClient(supabaseUrl, supabaseAnonKey)
+  return createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true, // 保持会话持久化
+      autoRefreshToken: true, // 自动刷新token
+      detectSessionInUrl: true
+    }
+  })
 }

@@ -9,11 +9,8 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
   },
   
-  // Add experimental features if needed
-  experimental: {
-    // Enable server components
-    serverComponentsExternalPackages: ['@supabase/supabase-js'],
-  },
+  // External packages for server components
+  serverExternalPackages: ['@supabase/supabase-js'],
 };
 
 export default nextConfig;

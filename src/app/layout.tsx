@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { AuthProvider } from "@/lib/auth";
 import { ErrorBoundary } from "@/components/error/ErrorBoundary";
 import { ToastProvider } from "@/components/error/Toast";
+import Navbar from "@/components/layout/Navbar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -33,6 +34,7 @@ export default function RootLayout({
         <ErrorBoundary>
           <ToastProvider>
             <AuthProvider>
+              <Navbar />
               {children}
             </AuthProvider>
           </ToastProvider>

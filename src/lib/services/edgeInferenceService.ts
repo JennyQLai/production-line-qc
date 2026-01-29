@@ -144,16 +144,35 @@ export class EdgeInferenceService {
 
       const data = await response.json()
       
-      console.log('✅ Inference response received:', {
-        requestId: data.request_id,
-        decision: data.suggested_decision,
-        detections: data.detections?.length || 0,
-        timeMs: data.time_ms
-      })
+      console.log('Inference response received:', data)
 
       // Validate response format
       if (!this.isValidInferenceResponse(data)) {
+        console.error('❌ Invalid response format. Expected fields:', {
+          request_id: 'string',
+          barcode: 'string',
+          time_ms: 'number',
+          img_shape: '{ width: number, height: number }',
+          detections: 'array',
+          suggested_decision: 'PASS|FAIL|UNKNOWN'
+        })
+        console.error('❌ Received:', data)
         throw new Error('Invalid inference response format')
+      }
+
+      // Convert old format to new format if needed
+      if (data.status && data.result) {
+        // Old format - convert to new format
+        console.log('🔄 Converting old format to new format')
+        return {
+          request_id: request.request_id,
+          barcode: request.barcode,
+          time_ms: 0, // Not available in old format
+          img_shape: { width: 0, height: 0 }, // Not available in old format
+          detections: [], // Not available in old format
+          suggested_decision: data.result === 'PASS' ? 'PASS' : data.result === 'FAIL' ? 'FAIL' : 'UNKNOWN',
+          model_version: undefined
+        }
       }
 
       return data
@@ -411,7 +430,21 @@ export class EdgeInferenceService {
    * Validate inference response format
    */
   private isValidInferenceResponse(data: any): data is EdgeInferenceResponse {
-    return (
+    console.log('🔍 Validating response format:', data)
+    
+    // Handle both old and new API response formats
+    const isOldFormat = (
+      typeof data === 'object' &&
+      data !== null &&
+      typeof data.status === 'string' &&
+      ['success', 'error'].includes(data.status) &&
+      (data.status === 'error' || (
+        typeof data.result === 'string' &&
+        ['PASS', 'FAIL'].includes(data.result)
+      ))
+    )
+    
+    const isNewFormat = (
       typeof data === 'object' &&
       data !== null &&
       typeof data.request_id === 'string' &&
@@ -424,6 +457,10 @@ export class EdgeInferenceService {
       typeof data.suggested_decision === 'string' &&
       ['PASS', 'FAIL', 'UNKNOWN'].includes(data.suggested_decision)
     )
+    
+    console.log('🔍 Format validation:', { isOldFormat, isNewFormat })
+    
+    return isNewFormat || isOldFormat
   }
 }
 
