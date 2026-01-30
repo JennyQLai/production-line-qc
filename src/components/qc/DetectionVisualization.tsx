@@ -36,35 +36,65 @@ export default function DetectionVisualization({
     const img = new Image()
     
     img.onload = () => {
-      // Set canvas size to match image
+      // Get the actual image dimensions
+      const actualImageWidth = img.naturalWidth
+      const actualImageHeight = img.naturalHeight
+      
+      console.log('🖼️ Image info:', {
+        naturalSize: `${actualImageWidth} × ${actualImageHeight}`,
+        reportedSize: `${result.img_shape[0]} × ${result.img_shape[1]}`,
+        detections: result.raw_detections.length
+      })
+      
+      // Set canvas size to match image aspect ratio but limit max size
       const maxWidth = 800
       const maxHeight = 600
       
-      let { width, height } = img
+      let canvasWidth = actualImageWidth
+      let canvasHeight = actualImageHeight
       
       // Scale down if image is too large
-      if (width > maxWidth || height > maxHeight) {
-        const scale = Math.min(maxWidth / width, maxHeight / height)
-        width *= scale
-        height *= scale
+      if (canvasWidth > maxWidth || canvasHeight > maxHeight) {
+        const scale = Math.min(maxWidth / canvasWidth, maxHeight / canvasHeight)
+        canvasWidth *= scale
+        canvasHeight *= scale
       }
       
-      canvas.width = width
-      canvas.height = height
+      canvas.width = canvasWidth
+      canvas.height = canvasHeight
       
       // Draw original image
-      ctx.drawImage(img, 0, 0, width, height)
+      ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight)
       
-      // Calculate scale factors
-      const scaleX = width / result.img_shape[0]
-      const scaleY = height / result.img_shape[1]
+      // Calculate scale factors based on ACTUAL image dimensions vs reported dimensions
+      // The detection coordinates are based on the reported img_shape, not the actual image size
+      const scaleX = canvasWidth / result.img_shape[0]
+      const scaleY = canvasHeight / result.img_shape[1]
+      
+      console.log('📐 Scale factors:', {
+        scaleX: scaleX.toFixed(4),
+        scaleY: scaleY.toFixed(4),
+        canvasSize: `${canvasWidth} × ${canvasHeight}`,
+        coordinateSpace: `${result.img_shape[0]} × ${result.img_shape[1]}`
+      })
       
       // Draw detection boxes
       result.raw_detections.forEach((detection, index) => {
+        console.log(`🎯 Detection ${index + 1}:`, {
+          id: detection.id,
+          cls: detection.cls,
+          conf: detection.conf.toFixed(3),
+          xyxy: detection.xyxy.map(v => Math.round(v))
+        })
         drawDetectionBox(ctx, detection, scaleX, scaleY, index)
       })
       
       setImageLoaded(true)
+      URL.revokeObjectURL(imageUrl)
+    }
+    
+    img.onerror = (error) => {
+      console.error('❌ Image load error:', error)
       URL.revokeObjectURL(imageUrl)
     }
     
@@ -89,37 +119,61 @@ export default function DetectionVisualization({
     const width = scaledX2 - scaledX1
     const height = scaledY2 - scaledY1
     
+    console.log(`📦 Drawing box ${index + 1}:`, {
+      original: `(${x1.toFixed(1)}, ${y1.toFixed(1)}) → (${x2.toFixed(1)}, ${y2.toFixed(1)})`,
+      scaled: `(${scaledX1.toFixed(1)}, ${scaledY1.toFixed(1)}) → (${scaledX2.toFixed(1)}, ${scaledY2.toFixed(1)})`,
+      size: `${width.toFixed(1)} × ${height.toFixed(1)}`
+    })
+    
     // Choose color based on detection class
     const color = getDetectionColor(detection.cls)
     
-    // Draw bounding box
+    // Draw bounding box with thicker line for better visibility
     ctx.strokeStyle = color
-    ctx.lineWidth = 3
+    ctx.lineWidth = 2
     ctx.strokeRect(scaledX1, scaledY1, width, height)
     
     // Draw semi-transparent background for label
-    ctx.fillStyle = color + '80' // Add transparency
-    ctx.fillRect(scaledX1, scaledY1 - 25, Math.max(width, 120), 25)
+    const labelWidth = Math.max(width, 100)
+    const labelHeight = 20
+    ctx.fillStyle = color + 'CC' // More opaque background
+    ctx.fillRect(scaledX1, scaledY1 - labelHeight, labelWidth, labelHeight)
     
     // Draw label text
     ctx.fillStyle = '#FFFFFF'
-    ctx.font = 'bold 12px Arial'
+    ctx.font = 'bold 11px Arial'
     ctx.textAlign = 'left'
     ctx.fillText(
-      `${detection.cls} (${(detection.conf * 100).toFixed(1)}%)`,
-      scaledX1 + 4,
-      scaledY1 - 8
+      `${detection.cls} ${(detection.conf * 100).toFixed(0)}%`,
+      scaledX1 + 2,
+      scaledY1 - 6
     )
     
-    // Draw detection ID
-    ctx.fillStyle = color
-    ctx.font = 'bold 14px Arial'
-    ctx.textAlign = 'center'
-    ctx.fillText(
-      `${index + 1}`,
-      scaledX1 + width / 2,
-      scaledY1 + height / 2
-    )
+    // Draw detection number in center of box
+    if (width > 20 && height > 20) {
+      ctx.fillStyle = color
+      ctx.font = 'bold 16px Arial'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      
+      // Add white outline for better visibility
+      ctx.strokeStyle = '#FFFFFF'
+      ctx.lineWidth = 3
+      ctx.strokeText(
+        `${index + 1}`,
+        scaledX1 + width / 2,
+        scaledY1 + height / 2
+      )
+      
+      ctx.fillText(
+        `${index + 1}`,
+        scaledX1 + width / 2,
+        scaledY1 + height / 2
+      )
+      
+      // Reset text baseline
+      ctx.textBaseline = 'alphabetic'
+    }
   }
 
   const getDetectionColor = (cls: string): string => {
@@ -255,6 +309,23 @@ export default function DetectionVisualization({
               </div>
             )}
           </div>
+
+          {/* Debug Info (only show in development) */}
+          {process.env.NODE_ENV === 'development' && (
+            <div className="bg-yellow-50 rounded-lg p-4 mt-4">
+              <h3 className="text-lg font-semibold text-yellow-800 mb-3">调试信息</h3>
+              <div className="text-xs space-y-1 text-yellow-700">
+                <div>报告图片尺寸: {result.img_shape[0]} × {result.img_shape[1]}</div>
+                <div>Canvas 尺寸: {canvasRef.current?.width} × {canvasRef.current?.height}</div>
+                <div>检测坐标示例 (前3个):</div>
+                {result.raw_detections.slice(0, 3).map((det, i) => (
+                  <div key={i} className="ml-2">
+                    {i + 1}. {det.cls}: [{det.xyxy.map(v => Math.round(v)).join(', ')}]
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Color Legend */}
           <div className="bg-gray-50 rounded-lg p-4">
