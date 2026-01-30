@@ -120,47 +120,37 @@ export default function HomePage() {
   return (
     <AuthGuard>
       <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
-                <h1 className="text-xl font-semibold text-gray-900">
-                  生产线质检系统
-                </h1>
-                {profile?.station && (
-                  <span className="ml-3 px-2 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
-                    {profile.station}
+        {/* Main Content */}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Edge API Status Card */}
+          <div className="mb-6 bg-white rounded-lg shadow-sm p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${
+                  edgeApiHealth?.isHealthy ? 'bg-green-500' : 'bg-red-500'
+                }`}></div>
+                <span className="text-sm font-medium text-gray-900">
+                  边缘推理服务
+                </span>
+                <span className={`text-sm ${
+                  edgeApiHealth?.isHealthy ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {edgeApiHealth?.isHealthy ? '在线' : '离线'}
+                </span>
+                {edgeApiHealth?.responseTime && (
+                  <span className="text-xs text-gray-500">
+                    ({edgeApiHealth.responseTime}ms)
                   </span>
                 )}
               </div>
-              
-              <div className="flex items-center space-x-4">
-                {/* Edge API Status */}
-                <div className="flex items-center space-x-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    edgeApiHealth?.isHealthy ? 'bg-green-500' : 'bg-red-500'
-                  }`}></div>
-                  <span className="text-sm text-gray-600">
-                    边缘推理 {edgeApiHealth?.isHealthy ? '在线' : '离线'}
-                  </span>
-                  {edgeApiHealth?.responseTime && (
-                    <span className="text-xs text-gray-500">
-                      ({edgeApiHealth.responseTime}ms)
-                    </span>
-                  )}
-                </div>
-                
-                <div className="text-sm text-gray-600">
-                  {user?.email}
-                </div>
-              </div>
+              <button
+                onClick={checkEdgeApiHealth}
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                检查状态
+              </button>
             </div>
           </div>
-        </header>
-
-        {/* Main Content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Edge API Health Warning */}
           {edgeApiHealth && !edgeApiHealth.isHealthy && (
             <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">

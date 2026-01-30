@@ -161,7 +161,7 @@ export class EdgeInferenceService {
       }
 
       // Convert old format to new format if needed
-      if (data.status && data.result) {
+      if ('status' in data && 'result' in data) {
         // Old format - convert to new format
         console.log('🔄 Converting old format to new format')
         return {
@@ -170,7 +170,7 @@ export class EdgeInferenceService {
           time_ms: 0, // Not available in old format
           img_shape: { width: 0, height: 0 }, // Not available in old format
           detections: [], // Not available in old format
-          suggested_decision: data.result === 'PASS' ? 'PASS' : data.result === 'FAIL' ? 'FAIL' : 'UNKNOWN',
+          suggested_decision: (data as any).result === 'PASS' ? 'PASS' : (data as any).result === 'FAIL' ? 'FAIL' : 'UNKNOWN',
           model_version: undefined
         }
       }

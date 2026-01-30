@@ -34,8 +34,12 @@ export default function RootLayout({
         <ErrorBoundary>
           <ToastProvider>
             <AuthProvider>
-              <Navbar />
-              {children}
+              <div className="min-h-screen bg-gray-50">
+                <Navbar />
+                <main>
+                  {children}
+                </main>
+              </div>
             </AuthProvider>
           </ToastProvider>
         </ErrorBoundary>

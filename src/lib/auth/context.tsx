@@ -159,34 +159,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       supabase.auth.getSession().then(async ({ data: { session } }) => {
         clearTimeout(loadingTimeout);
         
-        // 检查是否在退出登录后1小时内
-        const lastSignOutTime = localStorage.getItem('lastSignOutTime')
-        if (lastSignOutTime) {
-          const oneHour = 60 * 60 * 1000 // 1小时的毫秒数
-          const timeSinceSignOut = Date.now() - parseInt(lastSignOutTime)
-          
-          if (timeSinceSignOut < oneHour && session) {
-            // 在1小时内且有有效会话，自动登录
-            setSession(session)
-            setUser(session.user)
-            forceSetProfile(session.user.id)
-          } else if (timeSinceSignOut >= oneHour) {
-            // 超过1小时，清除会话
-            await supabase.auth.signOut()
-            localStorage.removeItem('lastSignOutTime')
-            setSession(null)
-            setUser(null)
-            setProfile(null)
+        // 检查是否在退出登录后1小时内（只在客户端执行）
+        if (typeof window !== 'undefined') {
+          const lastSignOutTime = localStorage.getItem('lastSignOutTime')
+          if (lastSignOutTime) {
+            const oneHour = 60 * 60 * 1000 // 1小时的毫秒数
+            const timeSinceSignOut = Date.now() - parseInt(lastSignOutTime)
+            
+            if (timeSinceSignOut < oneHour && session) {
+              // 在1小时内且有有效会话，自动登录
+              setSession(session)
+              setUser(session.user)
+              forceSetProfile(session.user.id)
+              setLoading(false)
+              return
+            } else if (timeSinceSignOut >= oneHour) {
+              // 超过1小时，清除会话
+              await supabase.auth.signOut()
+              localStorage.removeItem('lastSignOutTime')
+              setSession(null)
+              setUser(null)
+              setProfile(null)
+              setLoading(false)
+              return
+            }
           }
-        } else {
-          // 没有退出登录记录，正常处理会话
-          setSession(session)
-          setUser(session?.user ?? null)
-          
-          if (session?.user) {
-            console.log('User found:', session.user.email, 'ID:', session.user.id);
-            forceSetProfile(session.user.id);
-          }
+        }
+        
+        // 没有退出登录记录，正常处理会话
+        setSession(session)
+        setUser(session?.user ?? null)
+        
+        if (session?.user) {
+          console.log('User found:', session.user.email, 'ID:', session.user.id);
+          forceSetProfile(session.user.id);
         }
         
         setLoading(false)

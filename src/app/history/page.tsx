@@ -65,18 +65,19 @@ export default function HistoryPage() {
   return (
     <AuthGuard>
       <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
+        {/* Main Content */}
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Page Header */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-4">
                 <a
                   href="/"
-                  className="text-blue-600 hover:text-blue-800 mr-4"
+                  className="text-blue-600 hover:text-blue-800 font-medium"
                 >
-                  ← 返回
+                  ← 返回首页
                 </a>
-                <h1 className="text-xl font-semibold text-gray-900">
+                <h1 className="text-2xl font-bold text-gray-900">
                   检测历史记录
                 </h1>
               </div>
@@ -85,10 +86,6 @@ export default function HistoryPage() {
               </div>
             </div>
           </div>
-        </header>
-
-        {/* Main Content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {/* Search */}
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <form onSubmit={handleSearch} className="flex gap-4">
