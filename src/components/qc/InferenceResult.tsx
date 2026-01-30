@@ -79,9 +79,9 @@ export default function InferenceResult({ result, onClose, onNewInspection }: In
         </div>
         
         <div className="bg-gray-50 p-4 rounded-lg">
-          <h3 className="text-sm font-medium text-gray-500 mb-1">检测数量</h3>
+          <h3 className="text-sm font-medium text-gray-500 mb-1">检测单位</h3>
           <p className="text-lg font-semibold text-gray-900">
-            {result.raw_detections.length} 个缺陷
+            {result.raw_detections.length} 个单位
           </p>
         </div>
         

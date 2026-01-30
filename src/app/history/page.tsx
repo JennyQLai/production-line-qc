@@ -151,7 +151,7 @@ export default function HistoryPage() {
                           结果
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          缺陷数
+                          检测单位
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           推理时间

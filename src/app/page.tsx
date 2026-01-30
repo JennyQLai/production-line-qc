@@ -5,10 +5,11 @@ import { useAuth } from '@/lib/auth/context';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import BarcodeInput from '@/components/qc/BarcodeInput';
 import CameraCapture from '@/components/qc/CameraCapture';
+import DetectionVisualization from '@/components/qc/DetectionVisualization';
 import InferenceResult from '@/components/qc/InferenceResult';
 import { edgeInferenceService, InspectionRecord } from '@/lib/services/edgeInferenceService';
 
-type AppState = 'barcode' | 'camera' | 'processing' | 'result';
+type AppState = 'barcode' | 'camera' | 'processing' | 'visualization' | 'result';
 
 interface ProcessingStatus {
   stage: string;
@@ -20,6 +21,7 @@ export default function HomePage() {
   const [currentState, setCurrentState] = useState<AppState>('barcode');
   const [barcode, setBarcode] = useState('');
   const [jobId, setJobId] = useState('');
+  const [originalImage, setOriginalImage] = useState<Blob | null>(null);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>({ stage: '', progress: 0 });
   const [result, setResult] = useState<InspectionRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +58,7 @@ export default function HomePage() {
   };
 
   const handlePhotoCapture = async (photoBlob: Blob) => {
+    setOriginalImage(photoBlob); // Save original image for visualization
     setCurrentState('processing');
     setProcessingStatus({ stage: '准备处理...', progress: 0 });
     
@@ -77,7 +80,7 @@ export default function HomePage() {
       console.log('✅ Inference completed:', inspectionResult);
       
       setResult(inspectionResult);
-      setCurrentState('result');
+      setCurrentState('visualization'); // Show visualization first
     } catch (error) {
       console.error('❌ Inference failed:', error);
       setError(error instanceof Error ? error.message : '推理处理失败，请重试');
@@ -89,6 +92,17 @@ export default function HomePage() {
     setCurrentState('barcode');
     setBarcode('');
     setJobId('');
+    setOriginalImage(null);
+    setError(null);
+  };
+
+  const handleVisualizationContinue = () => {
+    setCurrentState('result');
+  };
+
+  const handleVisualizationRetake = () => {
+    setCurrentState('camera');
+    setResult(null);
     setError(null);
   };
 
@@ -96,6 +110,7 @@ export default function HomePage() {
     setCurrentState('barcode');
     setBarcode('');
     setJobId('');
+    setOriginalImage(null);
     setResult(null);
     setError(null);
   };
@@ -104,6 +119,7 @@ export default function HomePage() {
     setCurrentState('barcode');
     setBarcode('');
     setJobId('');
+    setOriginalImage(null);
     setResult(null);
     setError(null);
   };
@@ -231,6 +247,15 @@ export default function HomePage() {
                   </p>
                 </div>
               </div>
+            )}
+
+            {currentState === 'visualization' && result && originalImage && (
+              <DetectionVisualization
+                result={result}
+                originalImage={originalImage}
+                onContinue={handleVisualizationContinue}
+                onRetake={handleVisualizationRetake}
+              />
             )}
 
             {currentState === 'result' && result && (
