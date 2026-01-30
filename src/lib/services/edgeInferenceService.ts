@@ -51,10 +51,14 @@ export interface InspectionRecord {
 export class EdgeInferenceService {
   private readonly baseUrl: string
   private readonly timeout: number
+  private readonly useProxy: boolean
 
   constructor() {
     this.baseUrl = process.env.NEXT_PUBLIC_EDGE_API_BASE_URL || 'http://221.226.60.30:8000'
     this.timeout = 30000 // 30 seconds timeout
+    
+    // Use proxy in development to avoid CORS issues
+    this.useProxy = typeof window !== 'undefined' && process.env.NODE_ENV === 'development'
   }
 
   /**
@@ -72,7 +76,13 @@ export class EdgeInferenceService {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout for health check
 
-      const response = await fetch(`${this.baseUrl}/health`, {
+      const url = this.useProxy 
+        ? '/api/edge-proxy?endpoint=health'
+        : `${this.baseUrl}/health`
+
+      console.log('🏥 Health check URL:', url, this.useProxy ? '(via proxy)' : '(direct)')
+
+      const response = await fetch(url, {
         method: 'GET',
         signal: controller.signal
       })
@@ -118,16 +128,21 @@ export class EdgeInferenceService {
       formData.append('barcode', request.barcode)
       formData.append('request_id', request.request_id)
 
+      const url = this.useProxy 
+        ? '/api/edge-proxy'
+        : `${this.baseUrl}/infer`
+
       console.log('🔍 Sending inference request:', {
         baseUrl: this.baseUrl,
-        fullUrl: `${this.baseUrl}/infer`,
+        fullUrl: url,
+        useProxy: this.useProxy,
         barcode: request.barcode,
         requestId: request.request_id,
         fileSize: request.file.size,
         fileType: request.file.type
       })
 
-      const response = await fetch(`${this.baseUrl}/infer`, {
+      const response = await fetch(url, {
         method: 'POST',
         body: formData,
         signal: controller.signal,
@@ -222,7 +237,7 @@ export class EdgeInferenceService {
     try {
       onProgress?.('准备推理请求...', 10)
 
-      // Step 1: Upload image to Supabase Storage (optional, for record keeping)
+      // Step 1: Upload image to Supabase Storage (for record keeping)
       let imageUrl: string | undefined
       let imageSize = file.size
       
@@ -303,9 +318,22 @@ export class EdgeInferenceService {
   private async uploadImage(file: Blob, requestId: string): Promise<string> {
     const supabase = createClient()
     
-    // Generate unique filename
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      throw new Error('User not authenticated for image upload')
+    }
+    
+    // Generate unique filename with user folder structure for RLS
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const filename = `inference-${requestId}-${timestamp}.jpg`
+    const filename = `${user.id}/inference-${requestId}-${timestamp}.jpg`
+    
+    console.log('📤 Uploading image:', {
+      bucket: 'qc-images',
+      filename,
+      fileSize: file.size,
+      userId: user.id
+    })
     
     const { data, error } = await supabase.storage
       .from('qc-images')
@@ -315,8 +343,11 @@ export class EdgeInferenceService {
       })
 
     if (error) {
+      console.error('❌ Storage upload error:', error)
       throw new Error(`Image upload failed: ${error.message}`)
     }
+
+    console.log('✅ Storage upload success:', data)
 
     // Get public URL
     const { data: urlData } = supabase.storage

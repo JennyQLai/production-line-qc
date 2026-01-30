@@ -16,6 +16,38 @@ export default function DebugEdgePage() {
 
     const baseUrl = process.env.NEXT_PUBLIC_EDGE_API_BASE_URL || 'http://221.226.60.30:8000'
     
+    addResult('Test Configuration', {
+      baseUrl,
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      origin: window.location.origin
+    })
+
+    // Test 0: Basic network connectivity
+    try {
+      addResult('Network Connectivity Test', 'Testing basic connectivity...')
+      const startTime = Date.now()
+      
+      // Try to connect to the base URL with a very simple request
+      const response = await fetch(baseUrl, {
+        method: 'HEAD',
+        mode: 'no-cors', // This bypasses CORS for connectivity test
+        cache: 'no-cache'
+      })
+      
+      const endTime = Date.now()
+      addResult('Network Connectivity Result', {
+        responseTime: endTime - startTime,
+        type: response.type,
+        status: response.status || 'opaque'
+      })
+    } catch (error) {
+      addResult('Network Connectivity Error', {
+        message: error instanceof Error ? error.message : String(error),
+        name: error instanceof Error ? error.name : 'Unknown'
+      })
+    }
+    
     // Test 1: Health check
     try {
       addResult('Health Check URL', `${baseUrl}/health`)
@@ -75,16 +107,24 @@ export default function DebugEdgePage() {
       formData.append('request_id', 'debug_test_' + Date.now())
 
       addResult('Simple POST URL', `${baseUrl}/infer`)
+      
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 second timeout
+      
       const postResponse = await fetch(`${baseUrl}/infer`, {
         method: 'POST',
         body: formData,
-        mode: 'cors'
+        mode: 'cors',
+        signal: controller.signal
       })
+      
+      clearTimeout(timeoutId)
       
       addResult('Simple POST Response', {
         status: postResponse.status,
         statusText: postResponse.statusText,
-        headers: Object.fromEntries(postResponse.headers.entries())
+        headers: Object.fromEntries(postResponse.headers.entries()),
+        url: postResponse.url
       })
 
       const responseText = await postResponse.text()
@@ -92,7 +132,87 @@ export default function DebugEdgePage() {
     } catch (error) {
       addResult('Simple POST Error', {
         message: error instanceof Error ? error.message : String(error),
+        name: error instanceof Error ? error.name : 'Unknown',
+        stack: error instanceof Error ? error.stack : undefined
+      })
+    }
+
+    // Test 4: Test direct connection to base URL
+    try {
+      addResult('Base URL Test', `${baseUrl}/`)
+      const baseResponse = await fetch(`${baseUrl}/`, {
+        method: 'GET',
+        mode: 'cors'
+      })
+      
+      addResult('Base URL Response', {
+        status: baseResponse.status,
+        statusText: baseResponse.statusText,
+        headers: Object.fromEntries(baseResponse.headers.entries())
+      })
+
+      const baseText = await baseResponse.text()
+      addResult('Base URL Response Text', baseText)
+    } catch (error) {
+      addResult('Base URL Error', {
+        message: error instanceof Error ? error.message : String(error),
         name: error instanceof Error ? error.name : 'Unknown'
+      })
+    }
+
+    // Test 5: Test with actual image file
+    try {
+      // Create a small test image (1x1 pixel PNG)
+      const canvas = document.createElement('canvas')
+      canvas.width = 1
+      canvas.height = 1
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.fillStyle = 'red'
+        ctx.fillRect(0, 0, 1, 1)
+      }
+      
+      const testBlob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((blob) => resolve(blob!), 'image/png')
+      })
+
+      const formData = new FormData()
+      formData.append('file', testBlob, 'test.png')
+      formData.append('barcode', 'TEST_IMAGE_123')
+      formData.append('request_id', 'debug_image_test_' + Date.now())
+
+      addResult('Image POST URL', `${baseUrl}/infer`)
+      addResult('Test Image Info', {
+        size: testBlob.size,
+        type: testBlob.type
+      })
+      
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+      
+      const imageResponse = await fetch(`${baseUrl}/infer`, {
+        method: 'POST',
+        body: formData,
+        mode: 'cors',
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeoutId)
+      
+      addResult('Image POST Response', {
+        status: imageResponse.status,
+        statusText: imageResponse.statusText,
+        headers: Object.fromEntries(imageResponse.headers.entries()),
+        url: imageResponse.url
+      })
+
+      const imageResponseText = await imageResponse.text()
+      addResult('Image POST Response Text', imageResponseText)
+    } catch (error) {
+      addResult('Image POST Error', {
+        message: error instanceof Error ? error.message : String(error),
+        name: error instanceof Error ? error.name : 'Unknown',
+        stack: error instanceof Error ? error.stack : undefined
       })
     }
 
