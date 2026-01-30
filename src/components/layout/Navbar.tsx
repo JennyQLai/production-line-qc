@@ -20,6 +20,9 @@ export default function Navbar() {
   const navigation = [
     { name: '质检首页', href: '/', icon: Home, current: pathname === '/' },
     { name: '历史记录', href: '/history', icon: History, current: pathname === '/history' },
+    ...(profile?.role === 'admin' ? [
+      { name: '管理员', href: '/admin', icon: Settings, current: pathname === '/admin' }
+    ] : [])
   ]
 
   return (
