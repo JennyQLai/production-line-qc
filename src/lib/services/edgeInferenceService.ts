@@ -57,8 +57,14 @@ export class EdgeInferenceService {
     this.baseUrl = process.env.NEXT_PUBLIC_EDGE_API_BASE_URL || 'http://221.226.60.30:8000'
     this.timeout = 30000 // 30 seconds timeout
     
-    // Use proxy in development to avoid CORS issues
-    this.useProxy = typeof window !== 'undefined' && process.env.NODE_ENV === 'development'
+    // Always use proxy in browser environment to avoid CORS issues
+    this.useProxy = typeof window !== 'undefined'
+    
+    console.log('🔧 EdgeInferenceService config:', {
+      baseUrl: this.baseUrl,
+      useProxy: this.useProxy,
+      isClient: typeof window !== 'undefined'
+    })
   }
 
   /**
