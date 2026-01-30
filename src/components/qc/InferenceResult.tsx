@@ -95,7 +95,7 @@ export default function InferenceResult({ result, onClose, onNewInspection }: In
         <div className="bg-gray-50 p-4 rounded-lg">
           <h3 className="text-sm font-medium text-gray-500 mb-1">图片尺寸</h3>
           <p className="text-lg font-semibold text-gray-900">
-            {result.img_shape.width} × {result.img_shape.height}
+            {result.img_shape[0]} × {result.img_shape[1]}
           </p>
         </div>
       </div>

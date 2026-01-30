@@ -12,8 +12,8 @@ export interface EdgeInferenceRequest {
 }
 
 export interface EdgeDetection {
-  id: number
-  cls: number
+  id: string
+  cls: string
   conf: number
   xyxy: [number, number, number, number] // [x1, y1, x2, y2]
 }
@@ -22,12 +22,9 @@ export interface EdgeInferenceResponse {
   request_id: string
   barcode: string
   time_ms: number
-  img_shape: {
-    width: number
-    height: number
-  }
+  img_shape: [number, number] // [width, height] array format
   detections: EdgeDetection[]
-  suggested_decision: 'PASS' | 'FAIL' | 'UNKNOWN'
+  suggested_decision: 'PASS' | 'FAIL' | 'UNKNOWN' | 'OK' // Include 'OK' from actual API
   model_version?: string
 }
 
@@ -37,10 +34,10 @@ export interface InspectionRecord {
   edge_request_id: string
   edge_url: string
   model_version?: string
-  suggested_decision: 'PASS' | 'FAIL' | 'UNKNOWN'
+  suggested_decision: 'PASS' | 'FAIL' | 'UNKNOWN' // Keep normalized format for database
   raw_detections: EdgeDetection[]
   inference_time_ms: number
-  img_shape: { width: number; height: number }
+  img_shape: [number, number] // [width, height] array format to match API
   image_url?: string
   image_size?: number
   user_id?: string
@@ -152,9 +149,9 @@ export class EdgeInferenceService {
           request_id: 'string',
           barcode: 'string',
           time_ms: 'number',
-          img_shape: '{ width: number, height: number }',
+          img_shape: '[width, height] array',
           detections: 'array',
-          suggested_decision: 'PASS|FAIL|UNKNOWN'
+          suggested_decision: 'PASS|FAIL|UNKNOWN|OK'
         })
         console.error('❌ Received:', data)
         throw new Error('Invalid inference response format')
@@ -168,14 +165,20 @@ export class EdgeInferenceService {
           request_id: request.request_id,
           barcode: request.barcode,
           time_ms: 0, // Not available in old format
-          img_shape: { width: 0, height: 0 }, // Not available in old format
+          img_shape: [0, 0], // Not available in old format
           detections: [], // Not available in old format
           suggested_decision: (data as any).result === 'PASS' ? 'PASS' : (data as any).result === 'FAIL' ? 'FAIL' : 'UNKNOWN',
           model_version: undefined
         }
       }
 
-      return data
+      // Normalize the response - convert "OK" to "PASS"
+      const normalizedResponse = {
+        ...data,
+        suggested_decision: data.suggested_decision === 'OK' ? 'PASS' : data.suggested_decision
+      }
+
+      return normalizedResponse
     } catch (error) {
       clearTimeout(timeoutId)
       
@@ -230,7 +233,7 @@ export class EdgeInferenceService {
         edge_request_id: requestId,
         edge_url: this.baseUrl,
         model_version: inferenceResult.model_version,
-        suggested_decision: inferenceResult.suggested_decision,
+        suggested_decision: inferenceResult.suggested_decision === 'OK' ? 'PASS' : inferenceResult.suggested_decision, // Normalize here
         raw_detections: inferenceResult.detections,
         inference_time_ms: inferenceResult.time_ms,
         img_shape: inferenceResult.img_shape,
@@ -260,7 +263,7 @@ export class EdgeInferenceService {
           suggested_decision: 'UNKNOWN',
           raw_detections: [],
           inference_time_ms: 0,
-          img_shape: { width: 0, height: 0 },
+          img_shape: [0, 0], // Array format
           image_size: file.size,
           status: 'failed',
           error_message: error instanceof Error ? error.message : String(error)
@@ -444,23 +447,25 @@ export class EdgeInferenceService {
       ))
     )
     
-    const isNewFormat = (
+    // Current API format validation
+    const isCurrentFormat = (
       typeof data === 'object' &&
       data !== null &&
       typeof data.request_id === 'string' &&
       typeof data.barcode === 'string' &&
       typeof data.time_ms === 'number' &&
-      typeof data.img_shape === 'object' &&
-      typeof data.img_shape.width === 'number' &&
-      typeof data.img_shape.height === 'number' &&
+      Array.isArray(data.img_shape) && // img_shape is array [width, height]
+      data.img_shape.length === 2 &&
+      typeof data.img_shape[0] === 'number' &&
+      typeof data.img_shape[1] === 'number' &&
       Array.isArray(data.detections) &&
       typeof data.suggested_decision === 'string' &&
-      ['PASS', 'FAIL', 'UNKNOWN'].includes(data.suggested_decision)
+      ['PASS', 'FAIL', 'UNKNOWN', 'OK'].includes(data.suggested_decision) // Include 'OK'
     )
     
-    console.log('🔍 Format validation:', { isOldFormat, isNewFormat })
+    console.log('🔍 Format validation:', { isOldFormat, isCurrentFormat })
     
-    return isNewFormat || isOldFormat
+    return isCurrentFormat || isOldFormat
   }
 }
 
