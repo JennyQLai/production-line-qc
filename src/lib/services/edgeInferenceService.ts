@@ -120,6 +120,7 @@ export class EdgeInferenceService {
 
       console.log('🔍 Sending inference request:', {
         baseUrl: this.baseUrl,
+        fullUrl: `${this.baseUrl}/infer`,
         barcode: request.barcode,
         requestId: request.request_id,
         fileSize: request.file.size,
@@ -129,13 +130,30 @@ export class EdgeInferenceService {
       const response = await fetch(`${this.baseUrl}/infer`, {
         method: 'POST',
         body: formData,
-        signal: controller.signal
+        signal: controller.signal,
+        // Add headers for debugging
+        headers: {
+          // Don't set Content-Type for FormData, let browser set it with boundary
+        }
       })
 
       clearTimeout(timeoutId)
 
+      console.log('📡 Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        url: response.url
+      })
+
       if (!response.ok) {
         const errorText = await response.text()
+        console.error('❌ Edge API error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText,
+          url: response.url
+        })
         throw new Error(`Edge API error: ${response.status} ${response.statusText} - ${errorText}`)
       }
 
@@ -209,11 +227,13 @@ export class EdgeInferenceService {
       let imageSize = file.size
       
       try {
-        onProgress?.('上传图片...', 30)
+        onProgress?.('上传图片到存储...', 20)
         imageUrl = await this.uploadImage(file, requestId)
+        console.log('✅ Image uploaded successfully:', imageUrl)
       } catch (uploadError) {
-        console.warn('Image upload failed, continuing without storage:', uploadError)
+        console.warn('⚠️ Image upload failed, continuing without storage:', uploadError)
         // Continue without image storage - inference can still work
+        onProgress?.('图片上传失败，继续推理...', 30)
       }
 
       onProgress?.('发送推理请求...', 50)
@@ -288,7 +308,7 @@ export class EdgeInferenceService {
     const filename = `inference-${requestId}-${timestamp}.jpg`
     
     const { data, error } = await supabase.storage
-      .from('inspection-images')
+      .from('qc-images')
       .upload(filename, file, {
         contentType: file.type || 'image/jpeg',
         upsert: false
@@ -300,7 +320,7 @@ export class EdgeInferenceService {
 
     // Get public URL
     const { data: urlData } = supabase.storage
-      .from('inspection-images')
+      .from('qc-images')
       .getPublicUrl(data.path)
 
     return urlData.publicUrl
