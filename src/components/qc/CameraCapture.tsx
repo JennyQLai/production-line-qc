@@ -453,7 +453,7 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
       checkNetworkCamera();
     } else if (newMode === 'camera') {
       // 本地相机模式 - 只在支持的环境下启动
-      if (navigator?.mediaDevices?.getUserMedia) {
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
         getCameraDevices().then(() => {
           if (devices.length > 0) {
             startCamera(selectedDeviceId);
