@@ -72,7 +72,16 @@ export async function GET(request: NextRequest) {
  */
 async function handleApiEndpoint(endpoint: string) {
   try {
-    const apiPath = `/api/${endpoint}`
+    // 根据不同端点构建正确的 API 路径
+    let apiPath: string
+    if (endpoint === 'devices') {
+      // devices 端点需要 /api/camera/ 前缀
+      apiPath = '/api/camera/devices'
+    } else {
+      // 其他端点（如 status）使用 /api/ 前缀
+      apiPath = `/api/${endpoint}`
+    }
+    
     console.log(`📊 Proxying API request to: ${EDGE_API_BASE_URL}${apiPath}`)
     
     const response = await fetch(`${EDGE_API_BASE_URL}${apiPath}`, {
@@ -109,7 +118,7 @@ async function handleApiEndpoint(endpoint: string) {
       { 
         error: `API ${endpoint} proxy failed`, 
         details: error instanceof Error ? error.message : String(error),
-        target_url: `${EDGE_API_BASE_URL}/api/${endpoint}`
+        target_url: `${EDGE_API_BASE_URL}${endpoint === 'devices' ? '/api/camera/devices' : `/api/${endpoint}`}`
       },
       { status: 500 }
     )
