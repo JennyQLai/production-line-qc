@@ -597,12 +597,12 @@ export class EdgeInferenceService {
   }
 
   /**
-   * ??????????
+   * 检查网络相机是否可用
    */
   async checkNetworkCameraAvailable(): Promise<boolean> {
     try {
       const url = '/api/camera-proxy?endpoint=status'
-      console.log('?? Checking camera availability via proxy:', url)
+      console.log('📹 Checking camera availability via proxy:', url)
 
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 5000)
@@ -615,23 +615,28 @@ export class EdgeInferenceService {
       clearTimeout(timeoutId)
 
       if (!response.ok) {
-        console.log('?? Camera status check failed:', response.status)
+        console.log('❌ Camera status check failed:', response.status)
         return false
       }
 
       const data = await response.json()
-      console.log('? Camera status:', data)
+      console.log('✅ Camera status:', data)
       
-      // ??????
-      if (data.camera_available || data.camera_status === 'connected' || data.status === 'ok') {
+      // 检查 camera_running 字段（实际返回的字段）
+      if (data.camera_running === true) {
         return true
       }
       
-      // ??????????????
-      const devices = await this.getNetworkCameraDevices()
-      return devices.length > 0 && devices.some(d => d.is_connected)
+      // 备用检查：如果有设备列表且长度>0，也认为可用
+      try {
+        const devices = await this.getNetworkCameraDevices()
+        return devices.length > 0
+      } catch (deviceError) {
+        console.warn('⚠️ Failed to check devices as fallback:', deviceError)
+        return false
+      }
     } catch (error) {
-      console.error('? Camera availability check failed:', error)
+      console.error('❌ Camera availability check failed:', error)
       return false
     }
   }
