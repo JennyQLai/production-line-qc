@@ -36,8 +36,14 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [captureFlash, setCaptureFlash] = useState(false);
   const [previewOptimized, setPreviewOptimized] = useState(false);
-  // 2026-02-04: 添加 'network' 模式支持
-  const [mode, setMode] = useState<'camera' | 'upload' | 'network'>('camera');
+  // 2026-02-04: 默认模式 - 生产环境优先使用网络相机
+  const [mode, setMode] = useState<'camera' | 'upload' | 'network'>(() => {
+    // 如果不支持本地相机，默认使用网络相机
+    if (typeof window !== 'undefined' && !navigator?.mediaDevices?.getUserMedia) {
+      return 'network';
+    }
+    return 'camera';
+  });
   
   // 2026-02-04: 网络相机相关状态
   const [networkCameraAvailable, setNetworkCameraAvailable] = useState(false);
@@ -51,8 +57,15 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   // 2026-02-04: 网络相机图像引用
   const networkImageRef = useRef<HTMLImageElement>(null);
 
-  // Get available camera devices
+  // Get available camera devices (only for local camera mode)
   const getCameraDevices = useCallback(async () => {
+    // 防护：检查 navigator.mediaDevices 是否可用
+    if (!navigator?.mediaDevices?.enumerateDevices) {
+      console.warn('navigator.mediaDevices.enumerateDevices not available');
+      setError('当前环境不支持摄像头设备枚举（可能是非安全上下文或服务端渲染）');
+      return;
+    }
+
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const videoDevices = devices
@@ -97,8 +110,15 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
     }
   }, []);
 
-  // Start camera stream with optimizations
+  // Start camera stream with optimizations (only for local camera mode)
   const startCamera = useCallback(async (deviceId?: string) => {
+    // 防护：检查 navigator.mediaDevices 是否可用
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      console.warn('navigator.mediaDevices.getUserMedia not available');
+      setError('当前环境不支持摄像头访问（可能是非安全上下文或服务端渲染）');
+      return;
+    }
+
     try {
       setError(null);
       setPermissionDenied(false);
@@ -159,22 +179,36 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
     }
   }, [stream]);
 
-  // Initialize camera on mount (only if camera mode)
-  // 2026-02-04: 添加网络相机模式初始化
+  // Initialize camera on mount
+  // 2026-02-04: 修复 - 生产环境不使用本地相机，只使用网络相机和上传模式
   useEffect(() => {
     if (mode === 'camera') {
+      // 生产环境不支持本地相机，显示提示并切换到网络模式
+      if (typeof window !== 'undefined' && !navigator?.mediaDevices?.getUserMedia) {
+        console.warn('Local camera not supported in this environment, switching to network camera');
+        setMode('network');
+        return;
+      }
+      
+      // 只有在支持的环境下才调用本地相机
       getCameraDevices().then(() => {
         if (devices.length > 0) {
           startCamera(selectedDeviceId);
         }
       });
     } else if (mode === 'network') {
-      // 切换到网络相机模式时，停止本地相机并检查网络相机
+      // 网络相机模式：停止本地相机并检查网络相机
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         setStream(null);
       }
       checkNetworkCamera();
+    } else if (mode === 'upload') {
+      // 上传模式：停止本地相机流
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        setStream(null);
+      }
     }
 
     return () => {
@@ -184,10 +218,17 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
     };
   }, [mode]);
   
-  // 2026-02-04: 初始化时检查网络相机可用性
+  // 初始化时检查网络相机可用性，并设置默认模式
   useEffect(() => {
+    // 检查网络相机可用性
     checkNetworkCamera();
-  }, [checkNetworkCamera]);
+    
+    // 如果当前是 camera 模式但不支持本地相机，切换到 network 模式
+    if (mode === 'camera' && typeof window !== 'undefined' && !navigator?.mediaDevices?.getUserMedia) {
+      console.log('Switching to network camera mode (local camera not supported)');
+      setMode('network');
+    }
+  }, [mode]); // 移除 checkNetworkCamera 依赖，避免无限循环
 
   // Handle device change
   const handleDeviceChange = (deviceId: string) => {
@@ -387,8 +428,14 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   };
 
   // Switch mode
-  // 2026-02-04: 添加 'network' 模式支持
+  // 2026-02-04: 添加 'network' 模式支持，处理生产环境不支持本地相机的情况
   const switchMode = (newMode: 'camera' | 'upload' | 'network') => {
+    // 如果尝试切换到 camera 模式但不支持，切换到 network 模式
+    if (newMode === 'camera' && typeof window !== 'undefined' && !navigator?.mediaDevices?.getUserMedia) {
+      console.warn('Local camera not supported, switching to network camera');
+      newMode = 'network';
+    }
+
     setMode(newMode);
     setCapturedPhoto(null);
     setError(null);
@@ -404,13 +451,15 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
     } else if (newMode === 'network') {
       // 网络相机模式 - 检查网络相机可用性
       checkNetworkCamera();
-    } else {
-      // 本地相机模式 - 启动本地相机
-      getCameraDevices().then(() => {
-        if (devices.length > 0) {
-          startCamera(selectedDeviceId);
-        }
-      });
+    } else if (newMode === 'camera') {
+      // 本地相机模式 - 只在支持的环境下启动
+      if (navigator?.mediaDevices?.getUserMedia) {
+        getCameraDevices().then(() => {
+          if (devices.length > 0) {
+            startCamera(selectedDeviceId);
+          }
+        });
+      }
     }
   };
 

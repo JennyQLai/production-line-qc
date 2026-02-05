@@ -22,6 +22,11 @@ export async function GET(request: NextRequest) {
     return handleVideoFeed()
   }
   
+  // Handle status and devices endpoints with proper /api prefix
+  if (endpoint === 'status' || endpoint === 'devices') {
+    return handleApiEndpoint(endpoint)
+  }
+  
   try {
     console.log(`🔄 Proxying camera request to: ${EDGE_API_BASE_URL}/${endpoint}`)
     
@@ -55,6 +60,56 @@ export async function GET(request: NextRequest) {
         details: error instanceof Error ? error.message : String(error),
         endpoint: endpoint,
         target_url: `${EDGE_API_BASE_URL}/${endpoint}`
+      },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * Handle API endpoints (status, devices) with proper /api prefix
+ * 处理需要 /api 前缀的端点，避免 404 错误
+ */
+async function handleApiEndpoint(endpoint: string) {
+  try {
+    const apiPath = `/api/${endpoint}`
+    console.log(`📊 Proxying API request to: ${EDGE_API_BASE_URL}${apiPath}`)
+    
+    const response = await fetch(`${EDGE_API_BASE_URL}${apiPath}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'QC-System-Camera-Proxy/1.0',
+      },
+    })
+
+    console.log(`✅ API proxy response: ${response.status} ${response.statusText}`)
+    
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: `Failed to fetch ${endpoint}`, status: response.status },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.text()
+    
+    return new NextResponse(data, {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('Content-Type') || 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+      },
+    })
+  } catch (error) {
+    console.error(`❌ API ${endpoint} proxy error:`, error)
+    return NextResponse.json(
+      { 
+        error: `API ${endpoint} proxy failed`, 
+        details: error instanceof Error ? error.message : String(error),
+        target_url: `${EDGE_API_BASE_URL}/api/${endpoint}`
       },
       { status: 500 }
     )
