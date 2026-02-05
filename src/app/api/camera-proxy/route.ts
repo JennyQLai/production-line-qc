@@ -1,230 +1,178 @@
 /**
  * Camera Proxy API
- * 边缘机相机代理 - 转发视频流和设备信息
+ * 相机代理 API - 用于转发网络相机请求，解决 CORS 问题
  * 
- * 修改日期: 2026-02-04
- * 修改目的: 解决浏览器直接访问边缘机时的混合内容和 CORS 问题
+ * 2026-02-04: 新增网络相机代理支持
+ * 2026-02-04: 修复 MJPEG 流透传问题 - 直接透传 upstream.body
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 
+// 配置运行时为 nodejs，确保流式传输支持
+export const runtime = 'nodejs'
+
 const EDGE_API_BASE_URL = process.env.NEXT_PUBLIC_EDGE_API_BASE_URL || 'http://221.226.60.30:8000'
 
-/**
- * GET /api/camera-proxy
- * 
- * 支持的 endpoint 参数:
- * - devices: 获取相机设备列表
- * - video_feed: 获取视频流 (MJPEG)
- * - status: 获取相机状态
- */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const endpoint = searchParams.get('endpoint') || 'devices'
+  const endpoint = searchParams.get('endpoint') || 'status'
   
-  // 根据不同的 endpoint 处理请求
-  switch (endpoint) {
-    case 'video_feed':
-      return handleVideoFeed()
-    case 'devices':
-      return handleDevices()
-    case 'status':
-      return handleStatus()
-    default:
-      return NextResponse.json(
-        { error: 'Unknown endpoint', valid_endpoints: ['video_feed', 'devices', 'status'] },
-        { status: 400 }
-      )
+  // Handle video feed with direct stream passthrough
+  if (endpoint === 'video_feed') {
+    return handleVideoFeed()
+  }
+  
+  try {
+    console.log(`🔄 Proxying camera request to: ${EDGE_API_BASE_URL}/${endpoint}`)
+    
+    const response = await fetch(`${EDGE_API_BASE_URL}/${endpoint}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'QC-System-Camera-Proxy/1.0',
+      },
+    })
+
+    console.log(`✅ Camera proxy response: ${response.status} ${response.statusText}`)
+    
+    // 对于 JSON 响应
+    const data = await response.text()
+    
+    return new NextResponse(data, {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('Content-Type') || 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+      },
+    })
+  } catch (error) {
+    console.error('❌ Camera proxy error:', error)
+    return NextResponse.json(
+      { 
+        error: 'Camera proxy request failed', 
+        details: error instanceof Error ? error.message : String(error),
+        endpoint: endpoint,
+        target_url: `${EDGE_API_BASE_URL}/${endpoint}`
+      },
+      { status: 500 }
+    )
   }
 }
 
 /**
- * 处理视频流请求
- * 转发边缘机的 MJPEG 视频流
+ * Handle video feed with direct stream passthrough
+ * 直接透传上游视频流，避免缓冲问题
  */
 async function handleVideoFeed() {
   try {
-    console.log(`🎥 Proxying video feed from: ${EDGE_API_BASE_URL}/api/camera/video_feed`)
+    console.log('🎥 Proxying video feed...')
     
-    const response = await fetch(`${EDGE_API_BASE_URL}/api/camera/video_feed`, {
+    const upstream = await fetch(`${EDGE_API_BASE_URL}/api/camera/video_feed`, {
       method: 'GET',
-      // 不设置超时，因为视频流是持续的
+      headers: {
+        'User-Agent': 'QC-System-Camera-Proxy/1.0',
+      },
     })
 
-    if (!response.ok) {
-      console.error(`❌ Video feed error: ${response.status} ${response.statusText}`)
+    console.log(`✅ Proxy response: ${upstream.status} ${upstream.statusText}`)
+
+    if (!upstream.ok) {
       return NextResponse.json(
-        { error: 'Failed to connect to camera', status: response.status },
-        { status: response.status }
+        { error: 'Failed to connect to camera', status: upstream.status },
+        { status: upstream.status }
       )
     }
 
-    // 检查响应是否为流
-    if (!response.body) {
+    if (!upstream.body) {
       return NextResponse.json(
         { error: 'No video stream available' },
         { status: 500 }
       )
     }
 
-    // 创建转换流来转发数据
-    const { readable, writable } = new TransformStream()
-    
-    // 异步转发数据
-    const writer = writable.getWriter()
-    const reader = response.body.getReader()
-    
-    // 在后台持续转发数据
-    ;(async () => {
-      try {
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) {
-            console.log('📹 Video stream ended')
-            await writer.close()
-            break
-          }
-          await writer.write(value)
-        }
-      } catch (error) {
-        console.error('❌ Video stream error:', error)
-        try {
-          await writer.abort(error instanceof Error ? error : new Error(String(error)))
-        } catch {
-          // 忽略关闭错误
-        }
-      }
-    })()
+    // 透传上游的 Content-Type（包含 boundary）
+    const contentType = upstream.headers.get('content-type') ?? 'multipart/x-mixed-replace'
 
-    // 返回流式响应
-    return new NextResponse(readable, {
+    // 直接透传 upstream.body，不使用 TransformStream
+    return new NextResponse(upstream.body, {
       status: 200,
       headers: {
-        'Content-Type': 'multipart/x-mixed-replace; boundary=frame',
+        'Content-Type': contentType,
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
         'Expires': '0',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
       },
     })
   } catch (error) {
     console.error('❌ Video feed proxy error:', error)
     return NextResponse.json(
-      { error: 'Video feed proxy failed', details: error instanceof Error ? error.message : String(error) },
+      { 
+        error: 'Video feed proxy failed', 
+        details: error instanceof Error ? error.message : String(error),
+        target_url: `${EDGE_API_BASE_URL}/api/camera/video_feed`
+      },
       { status: 500 }
     )
   }
 }
 
-/**
- * 处理设备列表请求
- */
-async function handleDevices() {
+export async function POST(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const endpoint = searchParams.get('endpoint') || 'capture'
+  
   try {
-    console.log(`📷 Fetching camera devices from: ${EDGE_API_BASE_URL}/api/camera/devices`)
+    console.log(`🔄 Proxying camera POST request to: ${EDGE_API_BASE_URL}/${endpoint}`)
     
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000) // 5秒超时
-
-    const response = await fetch(`${EDGE_API_BASE_URL}/api/camera/devices`, {
-      method: 'GET',
+    // 获取请求体
+    const body = await request.text()
+    
+    const response = await fetch(`${EDGE_API_BASE_URL}/${endpoint}`, {
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': request.headers.get('Content-Type') || 'application/json',
+        'User-Agent': 'QC-System-Camera-Proxy/1.0',
       },
-      signal: controller.signal
+      body: body || undefined,
     })
 
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      console.error(`❌ Devices fetch error: ${response.status}`)
-      return NextResponse.json(
-        { error: 'Failed to fetch camera devices', status: response.status },
-        { status: response.status }
-      )
-    }
-
-    const data = await response.json()
-    console.log(`✅ Camera devices:`, data)
+    const responseText = await response.text()
     
-    return NextResponse.json(data, {
-      status: 200,
+    console.log(`✅ Camera proxy POST response: ${response.status} ${response.statusText}`)
+    
+    return new NextResponse(responseText, {
+      status: response.status,
       headers: {
+        'Content-Type': response.headers.get('Content-Type') || 'application/json',
         'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
       },
     })
   } catch (error) {
-    console.error('❌ Devices proxy error:', error)
-    
-    // 如果是超时错误
-    if (error instanceof Error && error.name === 'AbortError') {
-      return NextResponse.json(
-        { error: 'Request timeout', details: 'Camera service not responding' },
-        { status: 504 }
-      )
-    }
-    
+    console.error('❌ Camera proxy POST error:', error)
     return NextResponse.json(
-      { error: 'Devices proxy failed', details: error instanceof Error ? error.message : String(error) },
+      { 
+        error: 'Camera proxy POST request failed', 
+        details: error instanceof Error ? error.message : String(error),
+        endpoint: endpoint,
+        target_url: `${EDGE_API_BASE_URL}/${endpoint}`
+      },
       { status: 500 }
     )
   }
 }
 
-/**
- * 处理相机状态请求
- */
-async function handleStatus() {
-  try {
-    console.log(`📊 Fetching camera status from: ${EDGE_API_BASE_URL}/api/status`)
-    
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000)
-
-    const response = await fetch(`${EDGE_API_BASE_URL}/api/status`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { error: 'Failed to fetch camera status', status: response.status },
-        { status: response.status }
-      )
-    }
-
-    const data = await response.json()
-    console.log(`✅ Camera status:`, data)
-    
-    return NextResponse.json(data, {
-      status: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
-    })
-  } catch (error) {
-    console.error('❌ Status proxy error:', error)
-    return NextResponse.json(
-      { error: 'Status proxy failed', details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
-    )
-  }
-}
-
-/**
- * OPTIONS 请求处理 (CORS 预检)
- */
-export async function OPTIONS() {
+export async function OPTIONS(request: NextRequest) {
   return new NextResponse(null, {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': '*',
     },
   })
