@@ -1,7 +1,17 @@
 'use client';
 
+/**
+ * CameraCapture 组件
+ * 
+ * 2026-02-04 修改: 添加网络相机模式支持
+ * - 新增 'network' 模式，支持边缘机海康威视工业相机
+ * - 通过 /api/camera-proxy 代理转发视频流
+ * - 支持从 MJPEG 流中截图
+ */
+
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ProgressIndicator from '../ui/ProgressIndicator';
+import { edgeInferenceService } from '@/lib/services/edgeInferenceService';
 
 interface CameraCaptureProps {
   onPhotoCapture: (photoBlob: Blob) => void;
@@ -26,11 +36,20 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [captureFlash, setCaptureFlash] = useState(false);
   const [previewOptimized, setPreviewOptimized] = useState(false);
-  const [mode, setMode] = useState<'camera' | 'upload'>('camera');
+  // 2026-02-04: 添加 'network' 模式支持
+  const [mode, setMode] = useState<'camera' | 'upload' | 'network'>('camera');
+  
+  // 2026-02-04: 网络相机相关状态
+  const [networkCameraAvailable, setNetworkCameraAvailable] = useState(false);
+  const [networkCameraLoading, setNetworkCameraLoading] = useState(false);
+  const [networkCameraError, setNetworkCameraError] = useState<string | null>(null);
+  const [networkCameraUrl, setNetworkCameraUrl] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // 2026-02-04: 网络相机图像引用
+  const networkImageRef = useRef<HTMLImageElement>(null);
 
   // Get available camera devices
   const getCameraDevices = useCallback(async () => {
@@ -52,6 +71,31 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
       setError('无法获取摄像头设备列表');
     }
   }, [selectedDeviceId]);
+
+  // 2026-02-04: 检查网络相机是否可用
+  const checkNetworkCamera = useCallback(async () => {
+    setNetworkCameraLoading(true);
+    setNetworkCameraError(null);
+    
+    try {
+      const available = await edgeInferenceService.checkNetworkCameraAvailable();
+      setNetworkCameraAvailable(available);
+      
+      if (available) {
+        const videoUrl = edgeInferenceService.getVideoFeedUrl();
+        setNetworkCameraUrl(videoUrl);
+        console.log('📹 网络相机可用:', videoUrl);
+      } else {
+        setNetworkCameraError('边缘机相机不可用');
+      }
+    } catch (err) {
+      console.error('检查网络相机失败:', err);
+      setNetworkCameraAvailable(false);
+      setNetworkCameraError(err instanceof Error ? err.message : '检查网络相机失败');
+    } finally {
+      setNetworkCameraLoading(false);
+    }
+  }, []);
 
   // Start camera stream with optimizations
   const startCamera = useCallback(async (deviceId?: string) => {
@@ -116,6 +160,7 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   }, [stream]);
 
   // Initialize camera on mount (only if camera mode)
+  // 2026-02-04: 添加网络相机模式初始化
   useEffect(() => {
     if (mode === 'camera') {
       getCameraDevices().then(() => {
@@ -123,6 +168,13 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
           startCamera(selectedDeviceId);
         }
       });
+    } else if (mode === 'network') {
+      // 切换到网络相机模式时，停止本地相机并检查网络相机
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        setStream(null);
+      }
+      checkNetworkCamera();
     }
 
     return () => {
@@ -131,6 +183,11 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
       }
     };
   }, [mode]);
+  
+  // 2026-02-04: 初始化时检查网络相机可用性
+  useEffect(() => {
+    checkNetworkCamera();
+  }, [checkNetworkCamera]);
 
   // Handle device change
   const handleDeviceChange = (deviceId: string) => {
@@ -239,10 +296,67 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
     }, 'image/jpeg', 0.85); // Slightly higher quality for better results
   };
 
+  // 2026-02-04: 从网络相机截图
+  const captureNetworkPhoto = async () => {
+    if (!networkImageRef.current || !canvasRef.current) {
+      setError('网络相机未就绪');
+      return;
+    }
+
+    setIsCapturing(true);
+    setCaptureFlash(true);
+
+    // Haptic feedback for mobile devices
+    if ('vibrate' in navigator) {
+      navigator.vibrate(50);
+    }
+
+    // Flash effect
+    setTimeout(() => setCaptureFlash(false), 200);
+
+    try {
+      const img = networkImageRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+
+      if (!context) {
+        setError('无法获取画布上下文');
+        setIsCapturing(false);
+        return;
+      }
+
+      // 设置 canvas 尺寸
+      canvas.width = img.naturalWidth || 1920;
+      canvas.height = img.naturalHeight || 1080;
+
+      // 绘制网络相机图像到 canvas
+      context.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // 转换为 blob
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const photoUrl = URL.createObjectURL(blob);
+          setCapturedPhoto(photoUrl);
+          setTimeout(() => {
+            setIsCapturing(false);
+          }, 300);
+        } else {
+          setError('截图失败，请重试');
+          setIsCapturing(false);
+        }
+      }, 'image/jpeg', 0.85);
+    } catch (err) {
+      console.error('网络相机截图失败:', err);
+      setError('截图失败，请重试');
+      setIsCapturing(false);
+    }
+  };
+
   // Confirm photo and submit
+  // 2026-02-04: 添加 'network' 模式支持
   const confirmPhoto = () => {
-    if (mode === 'camera' && canvasRef.current) {
-      // Camera mode: get blob from canvas
+    if ((mode === 'camera' || mode === 'network') && canvasRef.current) {
+      // Camera/Network mode: get blob from canvas
       canvasRef.current.toBlob((blob) => {
         if (blob) {
           onPhotoCapture(blob);
@@ -273,19 +387,25 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   };
 
   // Switch mode
-  const switchMode = (newMode: 'camera' | 'upload') => {
+  // 2026-02-04: 添加 'network' 模式支持
+  const switchMode = (newMode: 'camera' | 'upload' | 'network') => {
     setMode(newMode);
     setCapturedPhoto(null);
     setError(null);
     
+    // 切换模式时，先停止本地相机
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+    
     if (newMode === 'upload') {
-      // Stop camera when switching to upload
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        setStream(null);
-      }
+      // 上传模式不需要额外操作
+    } else if (newMode === 'network') {
+      // 网络相机模式 - 检查网络相机可用性
+      checkNetworkCamera();
     } else {
-      // Start camera when switching to camera mode
+      // 本地相机模式 - 启动本地相机
       getCameraDevices().then(() => {
         if (devices.length > 0) {
           startCamera(selectedDeviceId);
@@ -410,6 +530,32 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
             <span className="hidden sm:inline">本地上传</span>
             <span className="sm:hidden">上传</span>
           </button>
+          {/* 2026-02-04: 添加网络相机模式按钮 */}
+          <button
+            onClick={() => switchMode('network')}
+            disabled={networkCameraLoading}
+            className={`px-3 sm:px-4 py-2 rounded-md text-sm font-medium transition-colors touch-manipulation ${
+              mode === 'network'
+                ? 'bg-white text-blue-600 shadow-sm'
+                : 'text-gray-600 hover:text-gray-900'
+            } ${networkCameraLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          >
+            <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            <span className="hidden sm:inline">网络相机</span>
+            <span className="sm:hidden">网络</span>
+            {/* 状态指示器 */}
+            {networkCameraLoading && (
+              <span className="ml-1 inline-block w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></span>
+            )}
+            {!networkCameraLoading && networkCameraAvailable && (
+              <span className="ml-1 inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+            )}
+            {!networkCameraLoading && !networkCameraAvailable && (
+              <span className="ml-1 inline-block w-2 h-2 bg-red-500 rounded-full"></span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -533,6 +679,74 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
               </div>
             )}
           </div>
+        ) : mode === 'network' ? (
+          /* 2026-02-04: 网络相机视频流显示 */
+          <div className="relative">
+            {networkCameraLoading ? (
+              <div className="w-full h-48 sm:h-64 flex items-center justify-center bg-gray-100 rounded-lg">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                  <p className="text-gray-500 text-sm">连接网络相机中...</p>
+                </div>
+              </div>
+            ) : networkCameraError ? (
+              <div className="w-full h-48 sm:h-64 flex items-center justify-center bg-red-50 rounded-lg">
+                <div className="text-center">
+                  <svg className="mx-auto h-10 w-10 text-red-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <p className="text-red-600 text-sm mb-2">{networkCameraError}</p>
+                  <button
+                    onClick={checkNetworkCamera}
+                    className="text-blue-600 text-sm hover:underline"
+                  >
+                    重新连接
+                  </button>
+                </div>
+              </div>
+            ) : networkCameraAvailable && networkCameraUrl ? (
+              <>
+                <img
+                  ref={networkImageRef}
+                  src={networkCameraUrl}
+                  alt="网络相机画面"
+                  className="w-full h-auto max-h-64 sm:max-h-96 object-contain bg-black rounded-lg"
+                  crossOrigin="anonymous"
+                  onError={() => {
+                    setNetworkCameraError('视频流加载失败');
+                    setNetworkCameraAvailable(false);
+                  }}
+                />
+                {/* 网络相机状态指示器 */}
+                <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center">
+                  <span className="w-2 h-2 bg-white rounded-full mr-1 animate-pulse"></span>
+                  边缘机相机
+                </div>
+                {/* Flash effect */}
+                {captureFlash && (
+                  <div className="absolute inset-0 bg-white animate-ping opacity-80"></div>
+                )}
+                {/* Loading overlay */}
+                {isCapturing && (
+                  <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center rounded-lg">
+                    <div className="text-white text-base sm:text-lg flex items-center">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-white mr-3"></div>
+                      <span className="animate-pulse">截图中...</span>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="w-full h-48 sm:h-64 flex items-center justify-center bg-gray-100 rounded-lg">
+                <div className="text-center text-gray-400">
+                  <svg className="mx-auto h-10 w-10 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  <p className="text-sm">网络相机不可用</p>
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="w-full h-48 sm:h-64 flex items-center justify-center text-gray-400">
             <div className="text-center">
@@ -560,12 +774,13 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
       <div className="flex gap-3">
         {capturedPhoto ? (
           <>
+            {/* 2026-02-04: 更新按钮文本支持网络模式 */}
             <button
               onClick={retakePhoto}
               disabled={uploadStatus === 'uploading' || uploadStatus === 'processing'}
               className="flex-1 bg-gray-300 text-gray-700 py-4 sm:py-3 px-4 rounded-lg font-medium hover:bg-gray-400 transition-colors touch-manipulation text-base sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              重新{mode === 'camera' ? '拍照' : '选择'}
+              重新{mode === 'camera' ? '拍照' : mode === 'network' ? '截图' : '选择'}
             </button>
             <button
               onClick={confirmPhoto}
@@ -591,6 +806,7 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
             >
               取消
             </button>
+            {/* 2026-02-04: 添加网络模式截图按钮 */}
             {mode === 'camera' ? (
               <button
                 onClick={capturePhoto}
@@ -611,6 +827,29 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
                     拍照
                     {/* Pulse effect for ready state */}
                     {previewOptimized && !isCapturing && (
+                      <div className="absolute inset-0 bg-white opacity-0 hover:opacity-10 transition-opacity duration-200"></div>
+                    )}
+                  </>
+                )}
+              </button>
+            ) : mode === 'network' ? (
+              <button
+                onClick={captureNetworkPhoto}
+                disabled={!networkCameraAvailable || isCapturing || uploadStatus === 'uploading' || uploadStatus === 'processing'}
+                className="flex-1 bg-blue-600 text-white py-4 sm:py-3 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 touch-manipulation text-base sm:text-sm relative overflow-hidden transform hover:scale-105 active:scale-95"
+              >
+                {isCapturing ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    <span className="animate-pulse">截图中...</span>
+                  </div>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    截图
+                    {networkCameraAvailable && !isCapturing && (
                       <div className="absolute inset-0 bg-white opacity-0 hover:opacity-10 transition-opacity duration-200"></div>
                     )}
                   </>
