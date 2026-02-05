@@ -24,8 +24,18 @@ export interface EdgeInferenceResponse {
   time_ms: number
   img_shape: [number, number] // [width, height] array format
   detections: EdgeDetection[]
-  suggested_decision: 'PASS' | 'FAIL' | 'UNKNOWN' | 'OK' // Include 'OK' from actual API
+  suggested_decision: 'PASS' | 'FAIL' | 'UNKNOWN' | 'OK' | 'NG' // 2026-02-04: Include 'NG' from actual API
   model_version?: string
+}
+
+// 2026-02-04: ????????
+export interface NetworkCameraDevice {
+  id: string
+  name: string
+  manufacturer?: string
+  model?: string
+  serial_number?: string
+  is_connected: boolean
 }
 
 export interface InspectionRecord {
@@ -60,7 +70,7 @@ export class EdgeInferenceService {
     // Always use proxy in browser environment to avoid CORS issues
     this.useProxy = typeof window !== 'undefined'
     
-    console.log('🔧 EdgeInferenceService config:', {
+    console.log('?? EdgeInferenceService config:', {
       baseUrl: this.baseUrl,
       useProxy: this.useProxy,
       isClient: typeof window !== 'undefined'
@@ -86,7 +96,7 @@ export class EdgeInferenceService {
         ? '/api/edge-proxy?endpoint=health'
         : `${this.baseUrl}/health`
 
-      console.log('🏥 Health check URL:', url, this.useProxy ? '(via proxy)' : '(direct)')
+      console.log('?? Health check URL:', url, this.useProxy ? '(via proxy)' : '(direct)')
 
       const response = await fetch(url, {
         method: 'GET',
@@ -138,7 +148,7 @@ export class EdgeInferenceService {
         ? '/api/edge-proxy'
         : `${this.baseUrl}/infer`
 
-      console.log('🔍 Sending inference request:', {
+      console.log('?? Sending inference request:', {
         baseUrl: this.baseUrl,
         fullUrl: url,
         useProxy: this.useProxy,
@@ -160,7 +170,7 @@ export class EdgeInferenceService {
 
       clearTimeout(timeoutId)
 
-      console.log('📡 Response received:', {
+      console.log('?? Response received:', {
         status: response.status,
         statusText: response.statusText,
         headers: Object.fromEntries(response.headers.entries()),
@@ -169,7 +179,7 @@ export class EdgeInferenceService {
 
       if (!response.ok) {
         const errorText = await response.text()
-        console.error('❌ Edge API error response:', {
+        console.error('? Edge API error response:', {
           status: response.status,
           statusText: response.statusText,
           errorText,
@@ -184,22 +194,22 @@ export class EdgeInferenceService {
 
       // Validate response format
       if (!this.isValidInferenceResponse(data)) {
-        console.error('❌ Invalid response format. Expected fields:', {
+        console.error('? Invalid response format. Expected fields:', {
           request_id: 'string',
           barcode: 'string',
           time_ms: 'number',
           img_shape: '[width, height] array',
           detections: 'array',
-          suggested_decision: 'PASS|FAIL|UNKNOWN|OK'
+          suggested_decision: 'PASS|FAIL|UNKNOWN|OK|NG'
         })
-        console.error('❌ Received:', data)
+        console.error('? Received:', data)
         throw new Error('Invalid inference response format')
       }
 
       // Convert old format to new format if needed
       if ('status' in data && 'result' in data) {
         // Old format - convert to new format
-        console.log('🔄 Converting old format to new format')
+        console.log('?? Converting old format to new format')
         return {
           request_id: request.request_id,
           barcode: request.barcode,
@@ -211,10 +221,15 @@ export class EdgeInferenceService {
         }
       }
 
-      // Normalize the response - convert "OK" to "PASS"
+      // 2026-02-04: Normalize the response - convert "OK" to "PASS" and "NG" to "FAIL"
+      const normalizedDecision = 
+        data.suggested_decision === 'OK' ? 'PASS' : 
+        data.suggested_decision === 'NG' ? 'FAIL' : 
+        data.suggested_decision
+      
       const normalizedResponse = {
         ...data,
-        suggested_decision: data.suggested_decision === 'OK' ? 'PASS' : data.suggested_decision
+        suggested_decision: normalizedDecision
       }
 
       return normalizedResponse
@@ -222,10 +237,10 @@ export class EdgeInferenceService {
       clearTimeout(timeoutId)
       
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`推理请求超时 (${this.timeout}ms)`)
+        throw new Error(`?????? (${this.timeout}ms)`)
       }
       
-      console.error('❌ Inference request failed:', error)
+      console.error('? Inference request failed:', error)
       throw error
     }
   }
@@ -241,23 +256,23 @@ export class EdgeInferenceService {
     const requestId = this.generateRequestId()
     
     try {
-      onProgress?.('准备推理请求...', 10)
+      onProgress?.('??????...', 10)
 
       // Step 1: Upload image to Supabase Storage (for record keeping)
       let imageUrl: string | undefined
       let imageSize = file.size
       
       try {
-        onProgress?.('上传图片到存储...', 20)
+        onProgress?.('???????...', 20)
         imageUrl = await this.uploadImage(file, requestId)
-        console.log('✅ Image uploaded successfully:', imageUrl)
+        console.log('? Image uploaded successfully:', imageUrl)
       } catch (uploadError) {
-        console.warn('⚠️ Image upload failed, continuing without storage:', uploadError)
+        console.warn('?? Image upload failed, continuing without storage:', uploadError)
         // Continue without image storage - inference can still work
-        onProgress?.('图片上传失败，继续推理...', 30)
+        onProgress?.('???????????...', 30)
       }
 
-      onProgress?.('发送推理请求...', 50)
+      onProgress?.('??????...', 50)
 
       // Step 2: Send inference request
       const inferenceResult = await this.inferImage({
@@ -266,7 +281,7 @@ export class EdgeInferenceService {
         request_id: requestId
       })
 
-      onProgress?.('保存推理记录...', 80)
+      onProgress?.('??????...', 80)
 
       // Step 3: Save inspection record to database
       const record = await this.saveInspectionRecord({
@@ -274,7 +289,11 @@ export class EdgeInferenceService {
         edge_request_id: requestId,
         edge_url: this.baseUrl,
         model_version: inferenceResult.model_version,
-        suggested_decision: inferenceResult.suggested_decision === 'OK' ? 'PASS' : inferenceResult.suggested_decision, // Normalize here
+        // 2026-02-04: Normalize - 'OK' -> 'PASS', 'NG' -> 'FAIL'
+        suggested_decision: 
+          inferenceResult.suggested_decision === 'OK' ? 'PASS' : 
+          inferenceResult.suggested_decision === 'NG' ? 'FAIL' : 
+          inferenceResult.suggested_decision,
         raw_detections: inferenceResult.detections,
         inference_time_ms: inferenceResult.time_ms,
         img_shape: inferenceResult.img_shape,
@@ -283,9 +302,9 @@ export class EdgeInferenceService {
         status: 'completed'
       })
 
-      onProgress?.('完成', 100)
+      onProgress?.('??', 100)
 
-      console.log('🎉 Inference workflow completed:', {
+      console.log('?? Inference workflow completed:', {
         recordId: record.id,
         decision: record.suggested_decision,
         detections: record.raw_detections.length
@@ -293,7 +312,7 @@ export class EdgeInferenceService {
 
       return record
     } catch (error) {
-      console.error('💥 Inference workflow failed:', error)
+      console.error('?? Inference workflow failed:', error)
       
       // Try to save error record
       try {
@@ -334,7 +353,7 @@ export class EdgeInferenceService {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const filename = `${user.id}/inference-${requestId}-${timestamp}.jpg`
     
-    console.log('📤 Uploading image:', {
+    console.log('?? Uploading image:', {
       bucket: 'qc-images',
       filename,
       fileSize: file.size,
@@ -349,11 +368,11 @@ export class EdgeInferenceService {
       })
 
     if (error) {
-      console.error('❌ Storage upload error:', error)
+      console.error('? Storage upload error:', error)
       throw new Error(`Image upload failed: ${error.message}`)
     }
 
-    console.log('✅ Storage upload success:', data)
+    console.log('? Storage upload success:', data)
 
     // Get public URL
     const { data: urlData } = supabase.storage
@@ -490,7 +509,7 @@ export class EdgeInferenceService {
    * Validate inference response format
    */
   private isValidInferenceResponse(data: any): data is EdgeInferenceResponse {
-    console.log('🔍 Validating response format:', data)
+    console.log('?? Validating response format:', data)
     
     // Handle both old and new API response formats
     const isOldFormat = (
@@ -517,12 +536,104 @@ export class EdgeInferenceService {
       typeof data.img_shape[1] === 'number' &&
       Array.isArray(data.detections) &&
       typeof data.suggested_decision === 'string' &&
-      ['PASS', 'FAIL', 'UNKNOWN', 'OK'].includes(data.suggested_decision) // Include 'OK'
+      ['PASS', 'FAIL', 'UNKNOWN', 'OK', 'NG'].includes(data.suggested_decision) // 2026-02-04: Include 'OK' and 'NG'
     )
     
-    console.log('🔍 Format validation:', { isOldFormat, isCurrentFormat })
+    console.log('?? Format validation:', { isOldFormat, isCurrentFormat })
     
     return isCurrentFormat || isOldFormat
+  }
+
+  // ==========================================
+  // 2026-02-04: ????????
+  // ==========================================
+
+  /**
+   * ??????????
+   */
+  async getNetworkCameraDevices(): Promise<NetworkCameraDevice[]> {
+    try {
+      const url = '/api/camera-proxy?endpoint=devices'
+      console.log('?? Fetching camera devices via proxy:', url)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        console.error('? Camera devices fetch failed:', response.status)
+        return []
+      }
+
+      const data = await response.json()
+      console.log('? Camera devices:', data)
+      
+      // ?????????
+      if (Array.isArray(data)) {
+        return data
+      } else if (data.devices && Array.isArray(data.devices)) {
+        return data.devices
+      }
+      
+      return []
+    } catch (error) {
+      console.error('? Failed to fetch camera devices:', error)
+      return []
+    }
+  }
+
+  /**
+   * ????????? URL
+   */
+  getVideoFeedUrl(): string {
+    // ???? URL ?? CORS ???????
+    return '/api/camera-proxy?endpoint=video_feed'
+  }
+
+  /**
+   * ??????????
+   */
+  async checkNetworkCameraAvailable(): Promise<boolean> {
+    try {
+      const url = '/api/camera-proxy?endpoint=status'
+      console.log('?? Checking camera availability via proxy:', url)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!response.ok) {
+        console.log('?? Camera status check failed:', response.status)
+        return false
+      }
+
+      const data = await response.json()
+      console.log('? Camera status:', data)
+      
+      // ??????
+      if (data.camera_available || data.camera_status === 'connected' || data.status === 'ok') {
+        return true
+      }
+      
+      // ??????????????
+      const devices = await this.getNetworkCameraDevices()
+      return devices.length > 0 && devices.some(d => d.is_connected)
+    } catch (error) {
+      console.error('? Camera availability check failed:', error)
+      return false
+    }
   }
 }
 
