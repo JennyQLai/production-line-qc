@@ -21,7 +21,6 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "产线拍照质检系统",
   description: "Production Line Photo Quality Control System",
-  charset: "utf-8",
 };
 
 export default function RootLayout({
