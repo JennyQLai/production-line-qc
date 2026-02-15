@@ -28,7 +28,7 @@ export interface EdgeInferenceResponse {
   model_version?: string
 }
 
-// 2026-02-04: ????????
+// 2026-02-04: 网络相机相关接口
 export interface NetworkCameraDevice {
   id: string
   name: string
@@ -237,7 +237,7 @@ export class EdgeInferenceService {
       clearTimeout(timeoutId)
       
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`?????? (${this.timeout}ms)`)
+        throw new Error(`请求超时 (${this.timeout}ms)`)
       }
       
       console.error('? Inference request failed:', error)
@@ -256,23 +256,23 @@ export class EdgeInferenceService {
     const requestId = this.generateRequestId()
     
     try {
-      onProgress?.('??????...', 10)
+      onProgress?.('开始处理...', 10)
 
       // Step 1: Upload image to Supabase Storage (for record keeping)
       let imageUrl: string | undefined
       let imageSize = file.size
       
       try {
-        onProgress?.('???????...', 20)
+        onProgress?.('上传图片中...', 20)
         imageUrl = await this.uploadImage(file, requestId)
-        console.log('? Image uploaded successfully:', imageUrl)
+        console.log('✅ Image uploaded successfully:', imageUrl)
       } catch (uploadError) {
-        console.warn('?? Image upload failed, continuing without storage:', uploadError)
+        console.warn('⚠️ Image upload failed, continuing without storage:', uploadError)
         // Continue without image storage - inference can still work
-        onProgress?.('???????????...', 30)
+        onProgress?.('跳过图片存储，继续推理...', 30)
       }
 
-      onProgress?.('??????...', 50)
+      onProgress?.('推理中...', 50)
 
       // Step 2: Send inference request
       const inferenceResult = await this.inferImage({
@@ -281,7 +281,7 @@ export class EdgeInferenceService {
         request_id: requestId
       })
 
-      onProgress?.('??????...', 80)
+      onProgress?.('保存结果...', 80)
 
       // Step 3: Save inspection record to database
       const record = await this.saveInspectionRecord({
@@ -545,11 +545,11 @@ export class EdgeInferenceService {
   }
 
   // ==========================================
-  // 2026-02-04: ????????
+  // 2026-02-04: 网络相机相关方法
   // ==========================================
 
   /**
-   * ??????????
+   * 获取网络相机设备列表
    */
   async getNetworkCameraDevices(): Promise<NetworkCameraDevice[]> {
     try {
@@ -572,9 +572,9 @@ export class EdgeInferenceService {
       }
 
       const data = await response.json()
-      console.log('? Camera devices:', data)
+      console.log('📹 Camera devices:', data)
       
-      // ?????????
+      // 处理不同的响应格式
       if (Array.isArray(data)) {
         return data
       } else if (data.devices && Array.isArray(data.devices)) {
@@ -589,10 +589,10 @@ export class EdgeInferenceService {
   }
 
   /**
-   * ????????? URL
+   * 获取视频流 URL
    */
   getVideoFeedUrl(): string {
-    // ???? URL ?? CORS ???????
+    // 使用代理 URL 避免 CORS 问题
     return '/api/camera-proxy?endpoint=video_feed'
   }
 

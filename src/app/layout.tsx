@@ -9,6 +9,8 @@ import "./globals.css";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
+  fallback: ["PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", "Arial", "sans-serif"],
 });
 
 const geistMono = Geist_Mono({
@@ -19,6 +21,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "产线拍照质检系统",
   description: "Production Line Photo Quality Control System",
+  charset: "utf-8",
 };
 
 export default function RootLayout({
@@ -28,6 +31,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

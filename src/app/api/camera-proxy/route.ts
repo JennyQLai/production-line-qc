@@ -22,8 +22,13 @@ export async function GET(request: NextRequest) {
     return handleVideoFeed()
   }
   
-  // Handle status and devices endpoints with proper /api prefix
-  if (endpoint === 'status' || endpoint === 'devices') {
+  // Handle status endpoint - use /health on edge machine
+  if (endpoint === 'status') {
+    return handleHealthStatus()
+  }
+  
+  // Handle devices endpoint with proper /api/camera prefix
+  if (endpoint === 'devices') {
     return handleApiEndpoint(endpoint)
   }
   
@@ -67,20 +72,62 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Handle API endpoints (status, devices) with proper /api prefix
+ * Handle health status endpoint
+ * 边缘机的状态接口是 /health，不是 /api/status
+ */
+async function handleHealthStatus() {
+  try {
+    console.log(`📊 Checking edge machine health status: ${EDGE_API_BASE_URL}/health`)
+    
+    const response = await fetch(`${EDGE_API_BASE_URL}/health`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'QC-System-Camera-Proxy/1.0',
+      },
+    })
+
+    console.log(`✅ Health status response: ${response.status} ${response.statusText}`)
+    
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: `Failed to fetch health status`, status: response.status },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.text()
+    
+    return new NextResponse(data, {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('Content-Type') || 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': '*',
+      },
+    })
+  } catch (error) {
+    console.error(`❌ Health status check failed:`, error)
+    return NextResponse.json(
+      { 
+        error: `Health status check failed`, 
+        details: error instanceof Error ? error.message : String(error),
+        target_url: `${EDGE_API_BASE_URL}/health`
+      },
+      { status: 500 }
+    )
+  }
+}
+
+/**
+ * Handle API endpoints (devices) with proper /api prefix
  * 处理需要 /api 前缀的端点，避免 404 错误
  */
 async function handleApiEndpoint(endpoint: string) {
   try {
-    // 根据不同端点构建正确的 API 路径
-    let apiPath: string
-    if (endpoint === 'devices') {
-      // devices 端点需要 /api/camera/ 前缀
-      apiPath = '/api/camera/devices'
-    } else {
-      // 其他端点（如 status）使用 /api/ 前缀
-      apiPath = `/api/${endpoint}`
-    }
+    // devices 端点需要 /api/camera/ 前缀
+    const apiPath = '/api/camera/devices'
     
     console.log(`📊 Proxying API request to: ${EDGE_API_BASE_URL}${apiPath}`)
     
@@ -113,12 +160,12 @@ async function handleApiEndpoint(endpoint: string) {
       },
     })
   } catch (error) {
-    console.error(`❌ API ${endpoint} proxy error:`, error)
+    console.log(`❌ API ${endpoint} proxy error:`, error)
     return NextResponse.json(
       { 
         error: `API ${endpoint} proxy failed`, 
         details: error instanceof Error ? error.message : String(error),
-        target_url: `${EDGE_API_BASE_URL}${endpoint === 'devices' ? '/api/camera/devices' : `/api/${endpoint}`}`
+        target_url: `${EDGE_API_BASE_URL}/api/camera/devices`
       },
       { status: 500 }
     )
