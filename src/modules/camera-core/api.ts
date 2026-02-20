@@ -26,13 +26,38 @@ export async function listDevices(): Promise<CameraDevice[]> {
     const data = await response.json()
     
     // Handle different response formats
+    let rawDevices = []
     if (Array.isArray(data)) {
-      return data
+      rawDevices = data
     } else if (data.devices && Array.isArray(data.devices)) {
-      return data.devices
+      rawDevices = data.devices
     }
     
-    return []
+    // Normalize device objects to match CameraDevice interface
+    // API returns camera_id (snake_case), we need id (camelCase)
+    const devices: CameraDevice[] = rawDevices.map((device: any) => {
+      const id = device.camera_id || device.cameraId || device.id
+      const name = device.label || device.name || id
+      
+      if (!id) {
+        console.warn('⚠️ Device missing camera_id:', device)
+      }
+      
+      return {
+        id,
+        name,
+        manufacturer: device.manufacturer,
+        status: device.status || 'unknown',
+        resolution: device.resolution,
+      }
+    })
+    
+    // Filter out devices without valid ID
+    const validDevices = devices.filter((d): d is CameraDevice => !!d.id)
+    
+    console.log(`📹 Normalized ${validDevices.length} camera devices:`, validDevices.map(d => d.id))
+    
+    return validDevices
   } catch (error) {
     console.error('❌ List devices error:', error)
     throw normalizeError(error)

@@ -141,7 +141,15 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selecte
       }
       
       // 选择要使用的相机
-      let cameraToSelect = availableCameras[0].id; // 默认使用第一个
+      const firstCamera = availableCameras[0]
+      if (!firstCamera || !firstCamera.id) {
+        console.error('❌ 第一个相机没有有效的 ID:', firstCamera)
+        setNetworkCameraError('相机数据格式错误')
+        setNetworkCameraAvailable(false)
+        return
+      }
+      
+      let cameraToSelect = firstCamera.id // 默认使用第一个
       
       // 如果用户设置了默认相机且在可用列表中，使用它
       if (defaultCameraId && availableCameras.some(c => c.id === defaultCameraId)) {
@@ -153,6 +161,13 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selecte
         console.log(`📹 使用产线默认相机: ${currentLine.defaultCameraId}`);
       } else {
         console.log(`📹 使用第一个可用相机: ${cameraToSelect}`);
+      }
+      
+      if (!cameraToSelect) {
+        console.error('❌ 选择的相机 ID 为空')
+        setNetworkCameraError('无法选择相机')
+        setNetworkCameraAvailable(false)
+        return
       }
       
       setSelectedNetworkCameraId(cameraToSelect);
