@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>相机UI测试 - 产线选择功能</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-8">
+    <div class="max-w-2xl mx-auto">
+        <h1 class="text-2xl font-bold mb-6 text-center">网络相机产线选择功能演示</h1>
+        
+        <!-- 模拟 CameraCapture 组件的产线选择部分 -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <div class="text-center mb-4">
+                <h2 class="text-xl font-bold text-gray-800 mb-2">拍摄产品照片</h2>
+                <p class="text-sm text-gray-600">Job ID: job_1234567890_abc123</p>
+            </div>
+
+            <!-- Mode selector -->
+            <div class="flex justify-center mb-4">
+                <div class="bg-gray-100 p-1 rounded-lg">
+                    <button class="px-4 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-gray-900">
+                        相机拍照
+                    </button>
+                    <button class="px-4 py-2 rounded-md text-sm font-medium text-gray-600 hover:text-gray-900">
+                        本地上传
+                    </button>
+                    <button class="px-4 py-2 rounded-md text-sm font-medium bg-white text-blue-600 shadow-sm">
+                        网络相机
+                        <span class="ml-1 inline-block w-2 h-2 bg-green-500 rounded-full"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 产线选择器 -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    选择产线
+                </label>
+                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option value="controller">控制器产线</option>
+                    <option value="motor">电机产线</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">
+                    控制器产品质检
+                </p>
+            </div>
+
+            <!-- 相机选择器 -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    选择相机
+                </label>
+                <select class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    <option value="DA8076792">DA8076792</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">
+                    当前产线共 1 个可用相机
+                </p>
+            </div>
+
+            <!-- 相机预览区域 -->
+            <div class="relative mb-4 bg-black rounded-lg overflow-hidden">
+                <div class="w-full h-64 flex items-center justify-center bg-gray-900">
+                    <div class="text-center text-white">
+                        <svg class="mx-auto h-12 w-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        <p class="text-sm">相机预览（轮询刷新中...）</p>
+                    </div>
+                </div>
+                <!-- 相机状态指示器 -->
+                <div class="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center">
+                    <span class="w-2 h-2 bg-white rounded-full mr-1 animate-pulse"></span>
+                    DA8076792
+                </div>
+            </div>
+
+            <!-- 控制按钮 -->
+            <div class="flex gap-3">
+                <button class="flex-1 bg-gray-300 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-400 transition-colors">
+                    取消
+                </button>
+                <button class="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors">
+                    <svg class="w-5 h-5 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    截图
+                </button>
+            </div>
+        </div>
+
+        <!-- 说明 -->
+        <div class="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h3 class="font-medium text-blue-900 mb-2">✅ 产线选择功能已实现</h3>
+            <ul class="text-sm text-blue-800 space-y-1">
+                <li>• 产线选择器：控制器/电机</li>
+                <li>• 相机选择器：根据产线过滤相机列表</li>
+                <li>• 实时预览：1秒轮询刷新</li>
+                <li>• 状态指示：显示当前相机名称</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

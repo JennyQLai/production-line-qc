@@ -21,6 +21,7 @@ export default function HomePage() {
   const [currentState, setCurrentState] = useState<AppState>('barcode');
   const [barcode, setBarcode] = useState('');
   const [jobId, setJobId] = useState('');
+  const [selectedLineKey, setSelectedLineKey] = useState<string>('controller');
   const [originalImage, setOriginalImage] = useState<Blob | null>(null);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>({ stage: '', progress: 0 });
   const [result, setResult] = useState<InspectionRecord | null>(null);
@@ -50,8 +51,9 @@ export default function HomePage() {
     }
   };
 
-  const handleBarcodeSubmit = (inputBarcode: string) => {
+  const handleBarcodeSubmit = (inputBarcode: string, lineKey: string) => {
     setBarcode(inputBarcode);
+    setSelectedLineKey(lineKey);
     setJobId(`job_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
     setError(null);
     setCurrentState('camera');
@@ -92,6 +94,7 @@ export default function HomePage() {
     setCurrentState('barcode');
     setBarcode('');
     setJobId('');
+    setSelectedLineKey('controller');
     setOriginalImage(null);
     setError(null);
   };
@@ -110,6 +113,7 @@ export default function HomePage() {
     setCurrentState('barcode');
     setBarcode('');
     setJobId('');
+    setSelectedLineKey('controller');
     setOriginalImage(null);
     setResult(null);
     setError(null);
@@ -119,6 +123,7 @@ export default function HomePage() {
     setCurrentState('barcode');
     setBarcode('');
     setJobId('');
+    setSelectedLineKey('controller');
     setOriginalImage(null);
     setResult(null);
     setError(null);
@@ -211,12 +216,15 @@ export default function HomePage() {
               <BarcodeInput
                 onBarcodeSubmit={handleBarcodeSubmit}
                 placeholder="请输入或扫描产品条码"
+                defaultLineKey={profile?.default_line_key || undefined}
               />
             )}
 
             {currentState === 'camera' && (
               <CameraCapture
                 jobId={jobId}
+                selectedLineKey={selectedLineKey}
+                defaultCameraId={profile?.default_camera_id || undefined}
                 onPhotoCapture={handlePhotoCapture}
                 onCancel={handleCameraCancel}
                 uploadProgress={processingStatus.progress}

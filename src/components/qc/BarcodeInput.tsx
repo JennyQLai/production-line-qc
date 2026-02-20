@@ -1,14 +1,16 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { LINE_MODULES } from '@/modules/lines';
 
 interface BarcodeInputProps {
-  onBarcodeSubmit?: (barcode: string) => void;
-  onSubmit?: (barcode: string) => void; // Alternative prop name for compatibility
+  onBarcodeSubmit?: (barcode: string, lineKey: string) => void;
+  onSubmit?: (barcode: string, lineKey: string) => void; // Alternative prop name for compatibility
   isLoading?: boolean;
   autoFocus?: boolean;
   initialBarcode?: string;
   placeholder?: string;
+  defaultLineKey?: string; // 从用户设置传入的默认产线
 }
 
 export default function BarcodeInput({ 
@@ -17,13 +19,22 @@ export default function BarcodeInput({
   isLoading = false, 
   autoFocus = true, 
   initialBarcode,
-  placeholder = "请输入或扫描产品条码"
+  placeholder = "请输入或扫描产品条码",
+  defaultLineKey: propDefaultLineKey,
 }: BarcodeInputProps) {
   const [barcode, setBarcode] = useState(initialBarcode || '');
+  const [selectedLineKey, setSelectedLineKey] = useState<string>(propDefaultLineKey || LINE_MODULES[0]?.key || 'controller');
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Use either prop for backward compatibility
   const handleSubmitCallback = onBarcodeSubmit || onSubmit;
+
+  // 当 prop 的 defaultLineKey 变化时更新状态
+  useEffect(() => {
+    if (propDefaultLineKey) {
+      setSelectedLineKey(propDefaultLineKey);
+    }
+  }, [propDefaultLineKey]);
 
   useEffect(() => {
     if (autoFocus && inputRef.current) {
@@ -34,7 +45,7 @@ export default function BarcodeInput({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (barcode.trim() && !isLoading && handleSubmitCallback) {
-      handleSubmitCallback(barcode.trim());
+      handleSubmitCallback(barcode.trim(), selectedLineKey);
       setBarcode('');
     }
   };
@@ -47,7 +58,7 @@ export default function BarcodeInput({
     if (value.includes('\n') || value.includes('\r')) {
       const cleanBarcode = value.replace(/[\n\r]/g, '').trim();
       if (cleanBarcode && !isLoading && handleSubmitCallback) {
-        handleSubmitCallback(cleanBarcode);
+        handleSubmitCallback(cleanBarcode, selectedLineKey);
         setBarcode('');
       }
     }
@@ -61,6 +72,31 @@ export default function BarcodeInput({
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* 产线选择 */}
+        <div>
+          <label htmlFor="line" className="block text-sm font-medium text-gray-700 mb-2">
+            选择产线
+          </label>
+          <select
+            id="line"
+            value={selectedLineKey}
+            onChange={(e) => setSelectedLineKey(e.target.value)}
+            disabled={isLoading}
+            className="w-full px-4 py-4 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed text-lg touch-manipulation"
+          >
+            {LINE_MODULES.map((line) => (
+              <option key={line.key} value={line.key}>
+                {line.label}
+              </option>
+            ))}
+          </select>
+          {LINE_MODULES.find(l => l.key === selectedLineKey)?.description && (
+            <p className="text-xs text-gray-500 mt-1">
+              {LINE_MODULES.find(l => l.key === selectedLineKey)?.description}
+            </p>
+          )}
+        </div>
+
         <div>
           <label htmlFor="barcode" className="block text-sm font-medium text-gray-700 mb-2">
             产品条形码

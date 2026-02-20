@@ -33,6 +33,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       id: userId,
       role: 'worker' as const,
       station: null,
+      default_line_key: null,
+      default_camera_id: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -139,6 +141,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         id: 'demo-user-123',
         role: 'worker' as const,
         station: '工位A',
+        default_line_key: null,
+        default_camera_id: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }

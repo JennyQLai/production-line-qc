@@ -25,6 +25,8 @@ interface CameraCaptureProps {
   onPhotoCapture: (photoBlob: Blob) => void;
   onCancel: () => void;
   jobId: string;
+  selectedLineKey: string; // 从首页传入的产线选择
+  defaultCameraId?: string; // 用户的默认相机设置
   uploadProgress?: number;
   uploadStatus?: 'idle' | 'uploading' | 'processing' | 'completed' | 'error';
 }
@@ -34,7 +36,7 @@ interface CameraDevice {
   label: string;
 }
 
-export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadProgress = 0, uploadStatus = 'idle' }: CameraCaptureProps) {
+export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selectedLineKey, defaultCameraId, uploadProgress = 0, uploadStatus = 'idle' }: CameraCaptureProps) {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [devices, setDevices] = useState<CameraDevice[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
@@ -59,8 +61,8 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   const [networkCameraError, setNetworkCameraError] = useState<string | null>(null);
   const [networkCameraUrl, setNetworkCameraUrl] = useState<string | null>(null);
   
-  // 2026-02-19: 产线选择状态
-  const [selectedLineKey, setSelectedLineKey] = useState<string>(LINE_MODULES[0]?.key || 'controller');
+  // 2026-02-19: 产线选择状态 - 从 props 接收，不再内部管理
+  // const [selectedLineKey, setSelectedLineKey] = useState<string>(LINE_MODULES[0]?.key || 'controller');
   
   // 2026-02-19: 网络相机列表和选择
   const [networkCameras, setNetworkCameras] = useState<NetworkCameraDevice[]>([]);
@@ -141,10 +143,17 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
       if (currentLine && currentLine.cameraIds.length > 0) {
         const availableCameras = cameras.filter(c => currentLine.cameraIds.includes(c.id));
         if (availableCameras.length > 0) {
-          const defaultCameraId = currentLine.defaultCameraId || availableCameras[0].id;
-          setSelectedNetworkCameraId(defaultCameraId);
+          // 优先使用用户的默认相机设置
+          let cameraToSelect = currentLine.defaultCameraId || availableCameras[0].id;
+          
+          // 如果传入了 defaultCameraId 且在可用相机列表中，使用它
+          if (defaultCameraId && availableCameras.some(c => c.id === defaultCameraId)) {
+            cameraToSelect = defaultCameraId;
+          }
+          
+          setSelectedNetworkCameraId(cameraToSelect);
           // 更新预览URL
-          const previewUrl = getLatestUrl(defaultCameraId);
+          const previewUrl = getLatestUrl(cameraToSelect);
           setNetworkCameraUrl(previewUrl);
           setNetworkCameraAvailable(true);
         } else {
@@ -305,29 +314,8 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
     startCamera(deviceId);
   };
 
-  // 2026-02-19: 处理产线切换
-  const handleLineChange = (lineKey: string) => {
-    setSelectedLineKey(lineKey);
-    // 切换产线后重新获取相机列表并自动选择
-    const currentLine = LINE_MODULES.find(l => l.key === lineKey);
-    if (currentLine && currentLine.cameraIds.length > 0) {
-      const availableCameras = networkCameras.filter(c => currentLine.cameraIds.includes(c.id));
-      if (availableCameras.length > 0) {
-        const defaultCameraId = currentLine.defaultCameraId || availableCameras[0].id;
-        handleNetworkCameraChange(defaultCameraId);
-      } else {
-        setSelectedNetworkCameraId(null);
-        setNetworkCameraUrl(null);
-        setNetworkCameraAvailable(false);
-        setNetworkCameraError('当前产线没有可用相机');
-      }
-    } else {
-      setSelectedNetworkCameraId(null);
-      setNetworkCameraUrl(null);
-      setNetworkCameraAvailable(false);
-      setNetworkCameraError('当前产线未配置相机');
-    }
-  };
+  // 2026-02-19: 处理产线切换 - 移除，产线在首页选择
+  // const handleLineChange = (lineKey: string) => { ... }
 
   // 2026-02-19: 处理网络相机切换
   const handleNetworkCameraChange = (cameraId: string) => {
@@ -732,29 +720,27 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
         </div>
       )}
 
-      {/* 2026-02-19: 产线选择器（网络相机模式） */}
+      {/* 2026-02-19: 产线选择器 - 移除，在首页选择 */}
+      {/* 网络相机模式下只显示相机选择器 */}
       {mode === 'network' && !capturedPhoto && (
         <>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              选择产线
-            </label>
-            <select
-              value={selectedLineKey}
-              onChange={(e) => handleLineChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              {LINE_MODULES.map((line) => (
-                <option key={line.key} value={line.key}>
-                  {line.label}
-                </option>
-              ))}
-            </select>
-            {LINE_MODULES.find(l => l.key === selectedLineKey)?.description && (
-              <p className="text-xs text-gray-500 mt-1">
-                {LINE_MODULES.find(l => l.key === selectedLineKey)?.description}
-              </p>
-            )}
+          {/* 显示当前产线信息 */}
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p className="text-sm font-medium text-blue-900">
+                  当前产线: {LINE_MODULES.find(l => l.key === selectedLineKey)?.label}
+                </p>
+                {LINE_MODULES.find(l => l.key === selectedLineKey)?.description && (
+                  <p className="text-xs text-blue-700 mt-0.5">
+                    {LINE_MODULES.find(l => l.key === selectedLineKey)?.description}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* 2026-02-19: 相机选择器（根据产线过滤） */}

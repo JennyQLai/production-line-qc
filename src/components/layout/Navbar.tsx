@@ -99,16 +99,14 @@ export default function Navbar() {
                 ))}
               </div>
               
-              <button
-                onClick={() => {
-                  setIsDropdownOpen(false)
-                  console.log('Navigate to profile')
-                }}
+              <a
+                href="/settings"
+                onClick={() => setIsDropdownOpen(false)}
                 className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center space-x-2"
               >
                 <Settings className="w-4 h-4" />
                 <span>个人设置</span>
-              </button>
+              </a>
               
               <button
                 onClick={() => {

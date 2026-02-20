@@ -6,6 +6,8 @@ export interface Database {
           id: string
           role: 'worker' | 'supervisor' | 'engineer' | 'admin'
           station: string | null
+          default_line_key: string | null
+          default_camera_id: string | null
           created_at: string
           updated_at: string
         }
@@ -13,6 +15,8 @@ export interface Database {
           id: string
           role?: 'worker' | 'supervisor' | 'engineer' | 'admin'
           station?: string | null
+          default_line_key?: string | null
+          default_camera_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -20,6 +24,8 @@ export interface Database {
           id?: string
           role?: 'worker' | 'supervisor' | 'engineer' | 'admin'
           station?: string | null
+          default_line_key?: string | null
+          default_camera_id?: string | null
           created_at?: string
           updated_at?: string
         }
