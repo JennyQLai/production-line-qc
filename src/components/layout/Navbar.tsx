@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/lib/auth'
 import { usePathname } from 'next/navigation'
-import { User, ChevronDown, LogOut, Home, History, Settings } from 'lucide-react'
+import { User, ChevronDown, LogOut, Home, History, Settings, Camera } from 'lucide-react'
 
 export default function Navbar() {
   const { user, profile, signOut } = useAuth()
@@ -20,6 +20,7 @@ export default function Navbar() {
   const navigation = [
     { name: '质检首页', href: '/', icon: Home, current: pathname === '/' },
     { name: '历史记录', href: '/history', icon: History, current: pathname === '/history' },
+    { name: '相机管理', href: '/cameras', icon: Camera, current: pathname === '/cameras' },
     ...(profile?.role === 'admin' ? [
       { name: '管理员', href: '/admin', icon: Settings, current: pathname === '/admin' }
     ] : [])
