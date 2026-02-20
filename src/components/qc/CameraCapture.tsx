@@ -103,30 +103,8 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selecte
     }
   }, [selectedDeviceId]);
 
-  // 2026-02-04: 检查网络相机是否可用
-  const checkNetworkCamera = useCallback(async () => {
-    setNetworkCameraLoading(true);
-    setNetworkCameraError(null);
-    
-    try {
-      const available = await edgeInferenceService.checkNetworkCameraAvailable();
-      setNetworkCameraAvailable(available);
-      
-      if (available) {
-        const videoUrl = edgeInferenceService.getVideoFeedUrl();
-        setNetworkCameraUrl(videoUrl);
-        console.log('📹 网络相机可用:', videoUrl);
-      } else {
-        setNetworkCameraError('边缘机相机不可用');
-      }
-    } catch (err) {
-      console.error('检查网络相机失败:', err);
-      setNetworkCameraAvailable(false);
-      setNetworkCameraError(err instanceof Error ? err.message : '检查网络相机失败');
-    } finally {
-      setNetworkCameraLoading(false);
-    }
-  }, []);
+  // 2026-02-04: 检查网络相机是否可用 - 已废弃，使用 fetchNetworkCameras 代替
+  // const checkNetworkCamera = useCallback(async () => { ... }, []);
 
   // 2026-02-19: 获取网络相机列表
   const fetchNetworkCameras = useCallback(async () => {
@@ -260,12 +238,12 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selecte
         }
       });
     } else if (mode === 'network') {
-      // 网络相机模式：停止本地相机并检查网络相机
+      // 网络相机模式：停止本地相机并获取相机列表
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         setStream(null);
       }
-      checkNetworkCamera();
+      fetchNetworkCameras();
     } else if (mode === 'upload') {
       // 上传模式：停止本地相机流
       if (stream) {
@@ -541,8 +519,8 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selecte
     if (newMode === 'upload') {
       // 上传模式不需要额外操作
     } else if (newMode === 'network') {
-      // 网络相机模式 - 检查网络相机可用性
-      checkNetworkCamera();
+      // 网络相机模式 - 获取相机列表
+      fetchNetworkCameras();
     } else if (newMode === 'camera') {
       // 本地相机模式 - 只在支持的环境下启动
       if (typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
@@ -918,7 +896,7 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selecte
                   </svg>
                   <p className="text-red-600 text-sm mb-2">{networkCameraError}</p>
                   <button
-                    onClick={checkNetworkCamera}
+                    onClick={fetchNetworkCameras}
                     className="text-blue-600 text-sm hover:underline"
                   >
                     重新连接
