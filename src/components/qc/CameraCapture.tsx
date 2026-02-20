@@ -7,11 +7,19 @@
  * - 新增 'network' 模式，支持边缘机海康威视工业相机
  * - 通过 /api/camera-proxy 代理转发视频流
  * - 支持从 MJPEG 流中截图
+ * 
+ * 2026-02-19 修改: 添加产线选择功能
+ * - 网络相机模式支持产线选择（控制器/电机）
+ * - 根据产线过滤相机列表
+ * - 使用模块化 LINE_MODULES 配置
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ProgressIndicator from '../ui/ProgressIndicator';
 import { edgeInferenceService } from '@/lib/services/edgeInferenceService';
+import { LINE_MODULES } from '@/modules/lines';
+import { listDevices, getLatestUrl } from '@/modules/camera-core/api';
+import type { CameraDevice as NetworkCameraDevice } from '@/modules/camera-core/types';
 
 interface CameraCaptureProps {
   onPhotoCapture: (photoBlob: Blob) => void;
@@ -50,6 +58,14 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   const [networkCameraLoading, setNetworkCameraLoading] = useState(false);
   const [networkCameraError, setNetworkCameraError] = useState<string | null>(null);
   const [networkCameraUrl, setNetworkCameraUrl] = useState<string | null>(null);
+  
+  // 2026-02-19: 产线选择状态
+  const [selectedLineKey, setSelectedLineKey] = useState<string>(LINE_MODULES[0]?.key || 'controller');
+  
+  // 2026-02-19: 网络相机列表和选择
+  const [networkCameras, setNetworkCameras] = useState<NetworkCameraDevice[]>([]);
+  const [selectedNetworkCameraId, setSelectedNetworkCameraId] = useState<string | null>(null);
+  const [networkCamerasLoading, setNetworkCamerasLoading] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -109,6 +125,44 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
       setNetworkCameraLoading(false);
     }
   }, []);
+
+  // 2026-02-19: 获取网络相机列表
+  const fetchNetworkCameras = useCallback(async () => {
+    setNetworkCamerasLoading(true);
+    setNetworkCameraError(null);
+    
+    try {
+      const cameras = await listDevices();
+      setNetworkCameras(cameras);
+      console.log('📹 获取到网络相机列表:', cameras);
+      
+      // 根据当前产线自动选择第一个可用相机
+      const currentLine = LINE_MODULES.find(l => l.key === selectedLineKey);
+      if (currentLine && currentLine.cameraIds.length > 0) {
+        const availableCameras = cameras.filter(c => currentLine.cameraIds.includes(c.id));
+        if (availableCameras.length > 0) {
+          const defaultCameraId = currentLine.defaultCameraId || availableCameras[0].id;
+          setSelectedNetworkCameraId(defaultCameraId);
+          // 更新预览URL
+          const previewUrl = getLatestUrl(defaultCameraId);
+          setNetworkCameraUrl(previewUrl);
+          setNetworkCameraAvailable(true);
+        } else {
+          setNetworkCameraError('当前产线没有可用相机');
+          setNetworkCameraAvailable(false);
+        }
+      } else {
+        setNetworkCameraError('当前产线未配置相机');
+        setNetworkCameraAvailable(false);
+      }
+    } catch (err) {
+      console.error('获取网络相机列表失败:', err);
+      setNetworkCameraError(err instanceof Error ? err.message : '获取相机列表失败');
+      setNetworkCameraAvailable(false);
+    } finally {
+      setNetworkCamerasLoading(false);
+    }
+  }, [selectedLineKey]);
 
   // Start camera stream with optimizations (only for local camera mode)
   const startCamera = useCallback(async (deviceId?: string) => {
@@ -220,20 +274,70 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
   
   // 初始化时检查网络相机可用性，并设置默认模式
   useEffect(() => {
-    // 检查网络相机可用性
-    checkNetworkCamera();
+    // 2026-02-19: 网络相机模式下获取相机列表
+    if (mode === 'network') {
+      fetchNetworkCameras();
+    }
     
     // 如果当前是 camera 模式但不支持本地相机，切换到 network 模式
     if (mode === 'camera' && typeof window !== 'undefined' && !navigator?.mediaDevices?.getUserMedia) {
       console.log('Switching to network camera mode (local camera not supported)');
       setMode('network');
     }
-  }, [mode]); // 移除 checkNetworkCamera 依赖，避免无限循环
+  }, [mode, fetchNetworkCameras]);
+
+  // 2026-02-19: 网络相机预览轮询刷新
+  useEffect(() => {
+    if (mode === 'network' && selectedNetworkCameraId && networkCameraAvailable && !capturedPhoto) {
+      const intervalId = setInterval(() => {
+        // 更新图片URL的时间戳以触发重新加载
+        const newUrl = getLatestUrl(selectedNetworkCameraId);
+        setNetworkCameraUrl(newUrl);
+      }, 1000); // 每秒刷新一次
+
+      return () => clearInterval(intervalId);
+    }
+  }, [mode, selectedNetworkCameraId, networkCameraAvailable, capturedPhoto]);
 
   // Handle device change
   const handleDeviceChange = (deviceId: string) => {
     setSelectedDeviceId(deviceId);
     startCamera(deviceId);
+  };
+
+  // 2026-02-19: 处理产线切换
+  const handleLineChange = (lineKey: string) => {
+    setSelectedLineKey(lineKey);
+    // 切换产线后重新获取相机列表并自动选择
+    const currentLine = LINE_MODULES.find(l => l.key === lineKey);
+    if (currentLine && currentLine.cameraIds.length > 0) {
+      const availableCameras = networkCameras.filter(c => currentLine.cameraIds.includes(c.id));
+      if (availableCameras.length > 0) {
+        const defaultCameraId = currentLine.defaultCameraId || availableCameras[0].id;
+        handleNetworkCameraChange(defaultCameraId);
+      } else {
+        setSelectedNetworkCameraId(null);
+        setNetworkCameraUrl(null);
+        setNetworkCameraAvailable(false);
+        setNetworkCameraError('当前产线没有可用相机');
+      }
+    } else {
+      setSelectedNetworkCameraId(null);
+      setNetworkCameraUrl(null);
+      setNetworkCameraAvailable(false);
+      setNetworkCameraError('当前产线未配置相机');
+    }
+  };
+
+  // 2026-02-19: 处理网络相机切换
+  const handleNetworkCameraChange = (cameraId: string) => {
+    setSelectedNetworkCameraId(cameraId);
+    // 更新预览URL
+    const previewUrl = getLatestUrl(cameraId);
+    setNetworkCameraUrl(previewUrl);
+    setNetworkCameraAvailable(true);
+    setNetworkCameraError(null);
+    console.log('📹 切换到相机:', cameraId, previewUrl);
   };
 
   // Handle file upload
@@ -628,6 +732,88 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
         </div>
       )}
 
+      {/* 2026-02-19: 产线选择器（网络相机模式） */}
+      {mode === 'network' && !capturedPhoto && (
+        <>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              选择产线
+            </label>
+            <select
+              value={selectedLineKey}
+              onChange={(e) => handleLineChange(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              {LINE_MODULES.map((line) => (
+                <option key={line.key} value={line.key}>
+                  {line.label}
+                </option>
+              ))}
+            </select>
+            {LINE_MODULES.find(l => l.key === selectedLineKey)?.description && (
+              <p className="text-xs text-gray-500 mt-1">
+                {LINE_MODULES.find(l => l.key === selectedLineKey)?.description}
+              </p>
+            )}
+          </div>
+
+          {/* 2026-02-19: 相机选择器（根据产线过滤） */}
+          {(() => {
+            const currentLine = LINE_MODULES.find(l => l.key === selectedLineKey);
+            const filteredCameras = currentLine && currentLine.cameraIds.length > 0
+              ? networkCameras.filter(c => currentLine.cameraIds.includes(c.id))
+              : [];
+
+            if (networkCamerasLoading) {
+              return (
+                <div className="mb-4 p-3 bg-gray-50 rounded-lg text-center">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500 mx-auto mb-2"></div>
+                  <p className="text-sm text-gray-600">加载相机列表...</p>
+                </div>
+              );
+            }
+
+            if (currentLine && currentLine.cameraIds.length === 0) {
+              return (
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-yellow-800 text-sm">⚠️ 当前产线未配置相机</p>
+                </div>
+              );
+            }
+
+            if (filteredCameras.length === 0) {
+              return (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-800 text-sm">❌ 当前产线没有可用相机</p>
+                </div>
+              );
+            }
+
+            return (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  选择相机
+                </label>
+                <select
+                  value={selectedNetworkCameraId || ''}
+                  onChange={(e) => handleNetworkCameraChange(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  {filteredCameras.map((camera) => (
+                    <option key={camera.id} value={camera.id}>
+                      {camera.name || camera.id}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  当前产线共 {filteredCameras.length} 个可用相机
+                </p>
+              </div>
+            );
+          })()}
+        </>
+      )}
+
       {/* File upload input */}
       {mode === 'upload' && !capturedPhoto && (
         <div className="mb-4">
@@ -753,7 +939,7 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
                   </button>
                 </div>
               </div>
-            ) : networkCameraAvailable && networkCameraUrl ? (
+            ) : networkCameraAvailable && networkCameraUrl && selectedNetworkCameraId ? (
               <>
                 <img
                   ref={networkImageRef}
@@ -762,14 +948,14 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, uploadP
                   className="w-full h-auto max-h-64 sm:max-h-96 object-contain bg-black rounded-lg"
                   crossOrigin="anonymous"
                   onError={() => {
-                    setNetworkCameraError('视频流加载失败');
+                    setNetworkCameraError('图片加载失败');
                     setNetworkCameraAvailable(false);
                   }}
                 />
                 {/* 网络相机状态指示器 */}
                 <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center">
                   <span className="w-2 h-2 bg-white rounded-full mr-1 animate-pulse"></span>
-                  边缘机相机
+                  {networkCameras.find(c => c.id === selectedNetworkCameraId)?.name || selectedNetworkCameraId}
                 </div>
                 {/* Flash effect */}
                 {captureFlash && (
