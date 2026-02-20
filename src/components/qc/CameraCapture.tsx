@@ -116,32 +116,52 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selecte
       setNetworkCameras(cameras);
       console.log('📹 获取到网络相机列表:', cameras);
       
-      // 根据当前产线自动选择第一个可用相机
+      // 只要有相机设备就认为可用
+      if (cameras.length === 0) {
+        setNetworkCameraError('没有可用的相机设备');
+        setNetworkCameraAvailable(false);
+        return;
+      }
+      
+      // 根据产线配置过滤相机（如果产线配置了 cameraIds）
       const currentLine = LINE_MODULES.find(l => l.key === selectedLineKey);
+      let availableCameras = cameras;
+      
       if (currentLine && currentLine.cameraIds.length > 0) {
-        const availableCameras = cameras.filter(c => currentLine.cameraIds.includes(c.id));
-        if (availableCameras.length > 0) {
-          // 优先使用用户的默认相机设置
-          let cameraToSelect = currentLine.defaultCameraId || availableCameras[0].id;
-          
-          // 如果传入了 defaultCameraId 且在可用相机列表中，使用它
-          if (defaultCameraId && availableCameras.some(c => c.id === defaultCameraId)) {
-            cameraToSelect = defaultCameraId;
-          }
-          
-          setSelectedNetworkCameraId(cameraToSelect);
-          // 更新预览URL
-          const previewUrl = getLatestUrl(cameraToSelect);
-          setNetworkCameraUrl(previewUrl);
-          setNetworkCameraAvailable(true);
+        // 产线配置了相机列表，只使用配置的相机
+        const filteredCameras = cameras.filter(c => currentLine.cameraIds.includes(c.id));
+        if (filteredCameras.length > 0) {
+          availableCameras = filteredCameras;
+          console.log(`📹 产线 ${currentLine.label} 配置了 ${filteredCameras.length} 个相机`);
         } else {
-          setNetworkCameraError('当前产线没有可用相机');
-          setNetworkCameraAvailable(false);
+          console.warn(`⚠️ 产线 ${currentLine.label} 配置的相机不在可用列表中，使用所有相机`);
         }
       } else {
-        setNetworkCameraError('当前产线未配置相机');
-        setNetworkCameraAvailable(false);
+        console.log('📹 产线未配置相机列表，使用所有可用相机');
       }
+      
+      // 选择要使用的相机
+      let cameraToSelect = availableCameras[0].id; // 默认使用第一个
+      
+      // 如果用户设置了默认相机且在可用列表中，使用它
+      if (defaultCameraId && availableCameras.some(c => c.id === defaultCameraId)) {
+        cameraToSelect = defaultCameraId;
+        console.log(`📹 使用用户默认相机: ${defaultCameraId}`);
+      } else if (currentLine?.defaultCameraId && availableCameras.some(c => c.id === currentLine.defaultCameraId)) {
+        // 否则如果产线配置了默认相机且在可用列表中，使用它
+        cameraToSelect = currentLine.defaultCameraId;
+        console.log(`📹 使用产线默认相机: ${currentLine.defaultCameraId}`);
+      } else {
+        console.log(`📹 使用第一个可用相机: ${cameraToSelect}`);
+      }
+      
+      setSelectedNetworkCameraId(cameraToSelect);
+      // 更新预览URL
+      const previewUrl = getLatestUrl(cameraToSelect);
+      setNetworkCameraUrl(previewUrl);
+      setNetworkCameraAvailable(true);
+      console.log(`✅ 相机已就绪: ${cameraToSelect}`);
+      
     } catch (err) {
       console.error('获取网络相机列表失败:', err);
       setNetworkCameraError(err instanceof Error ? err.message : '获取相机列表失败');
@@ -149,7 +169,7 @@ export default function CameraCapture({ onPhotoCapture, onCancel, jobId, selecte
     } finally {
       setNetworkCamerasLoading(false);
     }
-  }, [selectedLineKey]);
+  }, [selectedLineKey, defaultCameraId]);
 
   // Start camera stream with optimizations (only for local camera mode)
   const startCamera = useCallback(async (deviceId?: string) => {
